@@ -282,6 +282,13 @@ enum ItemRace
 	RACE_UNTRADEABLE		= 20  // Cannot be traded or sold.
 };
 
+enum SellType
+{
+	SellTypeNormal		= 0, // sell price is 1/4 of the purchase price
+	SellTypeFullPrice	= 1, // sell price is the same as the purchase price
+	SellTypeNoRepairs	= 2  // sell price is 1/4 of the purchase price, item cannot be repaired.
+};
+
 struct _ITEM_TABLE
 {
 	uint32	m_iNum;
@@ -360,8 +367,7 @@ struct _ITEM_TABLE
 	INLINE bool isBow() { return GetItemGroup() == WEAPON_BOW || GetItemGroup() == WEAPON_LONGBOW; }
 	INLINE bool isPickaxe() { return GetKind() == WEAPON_PICKAXE; }
 
-	// Detect 2-handed weapons. There's probably a better way of doing this.
-	INLINE bool is2Handed() { return isBow() || is2HSword() || is2HAxe() || is2HMace() || is2HSpear(); }
+	INLINE bool is2Handed() { return m_bSlot == ItemSlot2HLeftHand || m_bSlot == ItemSlot2HRightHand; }
 };
 
 struct _ZONE_SERVERINFO

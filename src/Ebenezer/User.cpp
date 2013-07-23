@@ -53,7 +53,7 @@ void CUser::Initialize()
 
 	m_sItemMaxHp = m_sItemMaxMp = 0;
 	m_sItemWeight = 0;
-	m_sItemHit = m_sItemAc = 0;
+	m_sItemAc = 0;
 
 	m_sExpGainAmount = m_bNPGainAmount = m_bNoahGainAmount = 100;
 	m_bItemExpGainAmount = m_bItemNoahGainAmount = 0;
@@ -149,6 +149,8 @@ void CUser::Initialize()
 	m_tRivalExpiryTime = 0;
 
 	m_byAngerGauge = 0;
+
+	m_bWeaponsDisabled = false;
 
 	m_teamColour = TeamColourNone;
 }
@@ -982,7 +984,7 @@ void CUser::SetSlotItemValue()
 	int item_hit = 0, item_ac = 0;
 
 	m_sItemMaxHp = m_sItemMaxMp = 0;
-	m_sItemHit = m_sItemAc = 0; 
+	m_sItemAc = 0; 
 	m_sItemWeight = m_sMaxWeightBonus = 0;	
 	m_sItemHitrate = m_sItemEvasionrate = 100; 
 	
@@ -1025,35 +1027,17 @@ void CUser::SetSlotItemValue()
 
 		// Do not apply stats to unequipped items
 		if ((i >= SLOT_MAX && i < INVENTORY_COSP)
+			// or disabled weapons.
+			|| (isWeaponsDisabled() 
+				&& (i == RIGHTHAND || i == LEFTHAND) 
+				&& !pTable->isShield())
 			// or items in magic bags.
 			|| i >= INVENTORY_MBAG)
 			continue;
 
+		item_ac = pTable->m_sAc;
 		if (pItem->sDuration == 0) 
-		{
-			item_hit = pTable->m_sDamage / 10;
-			item_ac = pTable->m_sAc / 10;
-		}
-		else 
-		{
-			item_hit = pTable->m_sDamage;
-			item_ac = pTable->m_sAc;
-		}
-
-		if (i == RIGHTHAND)
-		{
-			// NOTE: only count weapon enchant damage for right-handed weapons
-			m_sItemHit += item_hit + m_bAddWeaponDamage; 
-		}
-		// Only include AP in the left hand slot when:
-		//	- the user has at least received their first job change (i.e. they're not a beginner)
-		//	- the user is a warrior or a rogue.
-		else if (i == LEFTHAND 
-				&& !isBeginner()
-				&& (isWarrior() || isRogue()))
-		{
-			m_sItemHit += (short)(item_hit * 0.5f);
-		}
+			item_ac /= 10;
 
 		m_sItemMaxHp += pTable->m_MaxHpB;
 		m_sItemMaxMp += pTable->m_MaxMpB;
@@ -1169,9 +1153,6 @@ void CUser::SetSlotItemValue()
 		m_sItemAc += m_sAddArmourAc;
 	else
 		m_sItemAc = m_sItemAc * m_bPctArmourAc / 100;
-
-	if (m_sItemHit < 3)
-		m_sItemHit = 3;
 
 	// Update applicable weapon resistance amounts based on skill modifiers
 	// e.g. Eskrima
@@ -1597,55 +1578,62 @@ void CUser::SetUserAbility(bool bSendPacket /*= true*/)
 		return;
 	
 	float hitcoefficient = 0.0f;
-	_ITEM_TABLE * pRightHand = GetItemPrototype(RIGHTHAND);
-	if (pRightHand != nullptr)
+
+	if (!isWeaponsDisabled())
 	{
-		switch (pRightHand->m_bKind/10)
+		_ITEM_TABLE * pRightHand = GetItemPrototype(RIGHTHAND);
+		if (pRightHand != nullptr)
 		{
-		case WEAPON_DAGGER:
-			hitcoefficient = p_TableCoefficient->ShortSword;
-			break;
-		case WEAPON_SWORD:
-			hitcoefficient = p_TableCoefficient->Sword;
-			break;
-		case WEAPON_AXE:
-			hitcoefficient = p_TableCoefficient->Axe;
-			break;
-		case WEAPON_MACE:
-		case WEAPON_MACE2:
-			hitcoefficient = p_TableCoefficient->Club;
-			break;
-		case WEAPON_SPEAR:
-			hitcoefficient = p_TableCoefficient->Spear;
-			break;
-		case WEAPON_BOW:
-		case WEAPON_LONGBOW:
-		case WEAPON_LAUNCHER:
-			hitcoefficient = p_TableCoefficient->Bow;
-			bHaveBow = true;
-			break;
-		case WEAPON_STAFF:
-			hitcoefficient = p_TableCoefficient->Staff;
-			break;
+			switch (pRightHand->m_bKind/10)
+			{
+			case WEAPON_DAGGER:
+				hitcoefficient = p_TableCoefficient->ShortSword;
+				break;
+			case WEAPON_SWORD:
+				hitcoefficient = p_TableCoefficient->Sword;
+				break;
+			case WEAPON_AXE:
+				hitcoefficient = p_TableCoefficient->Axe;
+				break;
+			case WEAPON_MACE:
+			case WEAPON_MACE2:
+				hitcoefficient = p_TableCoefficient->Club;
+				break;
+			case WEAPON_SPEAR:
+				hitcoefficient = p_TableCoefficient->Spear;
+				break;
+			case WEAPON_BOW:
+			case WEAPON_LONGBOW:
+			case WEAPON_LAUNCHER:
+				hitcoefficient = p_TableCoefficient->Bow;
+				bHaveBow = true;
+				break;
+			case WEAPON_STAFF:
+				hitcoefficient = p_TableCoefficient->Staff;
+				break;
+			}
+
+			sItemDamage += pRightHand->m_sDamage + m_bAddWeaponDamage;
 		}
 
-		sItemDamage = pRightHand->m_sDamage + m_bAddWeaponDamage;
+		_ITEM_TABLE *pLeftHand = GetItemPrototype(LEFTHAND);
+		if (pLeftHand != nullptr)
+		{
+			if (pLeftHand->isBow())
+			{
+				hitcoefficient = p_TableCoefficient->Bow;
+				bHaveBow = true;
+				sItemDamage = pLeftHand->m_sDamage + m_bAddWeaponDamage;
+			}
+			else
+			{
+				sItemDamage += (pLeftHand->m_sDamage + m_bAddWeaponDamage) / 2;
+			}
+		}
 	}
 
-	_ITEM_TABLE *pLeftHand = GetItemPrototype(LEFTHAND);
-	if (pLeftHand != nullptr)
-	{
-		if (pLeftHand->isBow())
-		{
-			hitcoefficient = p_TableCoefficient->Bow;
-			bHaveBow = true;
-			sItemDamage = pLeftHand->m_sDamage + m_bAddWeaponDamage;
-		}
-		else
-		{
-			sItemDamage += (pLeftHand->m_sDamage + m_bAddWeaponDamage) / 2;
-		}
-	}
+	if (sItemDamage < 3)
+		sItemDamage = 3;
 
 	// Update stats based on item data
 	SetSlotItemValue();
@@ -1830,14 +1818,16 @@ void CUser::BundleOpenReq(Packet & pkt)
 	Packet result(WIZ_BUNDLE_OPEN_REQ);
 	uint32 bundle_index = pkt.read<uint32>();
 	C3DMap* pMap = GetMap();
+	CRegion * pRegion = GetRegion();
 
 	if (pMap == nullptr
 		|| bundle_index < 1 
-		|| GetRegion() == nullptr
+		|| pRegion == nullptr
 		|| isDead()) // yeah, we know people abuse this. We do not care!
 		return;
 
-	_LOOT_BUNDLE *pBundle = GetRegion()->m_RegionItemArray.GetData(bundle_index);
+	FastGuard lock(pRegion->m_RegionItemArray.m_lock);
+	_LOOT_BUNDLE *pBundle = pRegion->m_RegionItemArray.GetData(bundle_index);
 	if (pBundle == nullptr
 		|| !isInRange(pBundle->x, pBundle->z, MAX_LOOT_RANGE))
 		return;
@@ -2330,7 +2320,7 @@ void CUser::SendNotice()
 	Send(&result);
 }
 
-void CUser::AppendNoticeEntry(Packet & pkt, uint8 & elementCount, char * message, char * title)
+void CUser::AppendNoticeEntry(Packet & pkt, uint8 & elementCount, const char * message, const char * title)
 {
 	if (message == nullptr || *message == '\0')
 		return;
@@ -2353,13 +2343,13 @@ void CUser::AppendExtraNoticeData(Packet & pkt, uint8 & elementCount)
 	if (g_pMain->m_byExpEventAmount > 0)
 	{
 		g_pMain->GetServerResource(IDS_EXP_REPAY_EVENT, &message, g_pMain->m_byExpEventAmount);
-		AppendNoticeEntry(pkt, elementCount, const_cast<char *>(message.c_str()), "EXP event"); 
+		AppendNoticeEntry(pkt, elementCount, message.c_str(), "EXP event"); 
 	}
 
 	if (g_pMain->m_byCoinEventAmount > 0)
 	{
 		g_pMain->GetServerResource(IDS_MONEY_REPAY_EVENT, &message, g_pMain->m_byCoinEventAmount);
-		AppendNoticeEntry(pkt, elementCount, const_cast<char *>(message.c_str()), "Noah event"); 
+		AppendNoticeEntry(pkt, elementCount, message.c_str(), "Noah event"); 
 	}
 }
 
@@ -2721,7 +2711,7 @@ void CUser::HPTimeChangeType3()
 			// Has the skill expired yet?
 			if (++pEffect->m_bTickCount == pEffect->m_bTickLimit)
 			{
-				Packet result(WIZ_MAGIC_PROCESS, uint8(MAGIC_TYPE3_END));
+				Packet result(WIZ_MAGIC_PROCESS, uint8(MAGIC_DURATION_EXPIRED));
 
 				// Healing-over-time skills require the type 100
 				if (pEffect->m_sHPAmount > 0)

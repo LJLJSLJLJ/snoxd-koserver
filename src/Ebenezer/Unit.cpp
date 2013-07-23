@@ -403,6 +403,10 @@ void CUser::OnDefend(Unit * pAttacker, AttackType attackType)
  */
 bool CUser::TriggerProcItem(uint8 bSlot, Unit * pTarget, ItemTriggerType triggerType)
 {
+	// Don't proc weapon skills if our weapon is disabled.
+	if (triggerType == TriggerTypeAttack && isWeaponsDisabled()) 
+		return false;
+
 	// Ensure there's an item in this slot, 
 	_ITEM_DATA * pItem = GetItem(bSlot);
 	if (pItem == nullptr
@@ -629,7 +633,7 @@ short Unit::GetMagicDamage(int damage, Unit *pTarget, bool bPreviewOnly /*= fals
 short Unit::GetACDamage(int damage, Unit *pTarget)
 {
 	// This isn't applicable to NPCs.
-	if (isNPC() || pTarget->isNPC())
+	if (!isPlayer() || !pTarget->isPlayer())
 		return damage;
 
 #ifdef EBENEZER
@@ -637,6 +641,9 @@ short Unit::GetACDamage(int damage, Unit *pTarget)
 		return 0;
 
 	CUser * pUser  = TO_USER(this);
+	if (pUser->isWeaponsDisabled())
+		return damage;
+
 	uint8 weaponSlots[] = { RIGHTHAND, LEFTHAND };
 
 	foreach_array (slot, weaponSlots)
@@ -959,6 +966,9 @@ void KOMap::SetZoneAttributes(int zoneNumber)
  */
 bool CNpc::isHostileTo(Unit * pTarget)
 {
+	if (pTarget == nullptr)
+		return false;
+
 	// Only players can attack these targets.
 	if (pTarget->isPlayer())
 	{
@@ -993,6 +1003,9 @@ bool CNpc::isHostileTo(Unit * pTarget)
  */
 bool CUser::isHostileTo(Unit * pTarget)
 {
+	if (pTarget == nullptr)
+		return false;
+
 	// For non-player hostility checks, refer to the appropriate override.
 	if (!pTarget->isPlayer())
 		return pTarget->isHostileTo(this);

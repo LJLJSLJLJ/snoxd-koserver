@@ -113,9 +113,6 @@ void MagicInstance::Run()
 			}
 			break;
 
-		case MAGIC_TYPE3_END: //This is also MAGIC_TYPE4_END
-			break;
-
 		case MAGIC_CANCEL:
 		case MAGIC_CANCEL2:
 			Type3Cancel();	//Damage over Time skills.
@@ -252,10 +249,7 @@ SkillUseResult MagicInstance::UserCanCast()
 
 	// Instant casting affects the next cast skill only, and is then removed.
 	if (bOpcode == MAGIC_EFFECTING && pSkillCaster->canInstantCast())
-	{
-		CMagicProcess::RemoveType4Buff(BUFF_TYPE_INSTANT_MAGIC, pSkillCaster);
 		bInstantCast = true;
-	}
 
 	// In case we made it to here, we can cast! Hurray!
 	return SkillUseOK;
@@ -560,14 +554,6 @@ void MagicInstance::BuildSkillPacket(Packet & result, int16 sSkillCaster, int16 
 	}
 
 	result.Initialize(WIZ_MAGIC_PROCESS);
-
-	// Handle the "instantly magic" buff; this will reset the cooldown on any skill.
-	// NOTE: Unsure how this is handled officially, but this seems to produce the desired effect.
-	// Effects seem to be applying correctly for everything I tested...
-	if (bInstantCast 
-		&& opcode == MAGIC_EFFECTING)
-		bOpcode = MAGIC_FAIL;
-
 	result	<< opcode << nSkillID << sSkillCaster << sSkillTarget
 			<< sData[0] << sData[1] << sData[2] << sData[3]
 			<< sData[4] << sData[5] << sData[6];
@@ -677,10 +663,13 @@ bool MagicInstance::IsAvailable()
 			break;
 
 		case MORAL_ENEMY:
-			// Nation alone cannot dictate whether a unit can attack another.
-			// As such, we must check behaviour specific to these entities.
-			// For example: same nation players attacking each other in an arena.
-			if (!pSkillCaster->isHostileTo(pSkillTarget))
+			// Allow for archery skills with no defined targets (e.g. an arrow from 'multiple shot' not hitting any targets). 
+			// These should be ignored, not fail.
+			if (pSkillTarget != nullptr
+				// Nation alone cannot dictate whether a unit can attack another.
+				// As such, we must check behaviour specific to these entities.
+				// For example: same nation players attacking each other in an arena.
+				&& !pSkillCaster->isHostileTo(pSkillTarget))
 				goto fail_return;
 			break;	
 
@@ -778,6 +767,9 @@ bool MagicInstance::IsAvailable()
 
 		if (pSkill->bType[0] == 1) {	// Weapons verification in case of COMBO attack (another hacking prevention).
 			if (pSkill->sSkill == 1055 || pSkill->sSkill == 2055) {		// Weapons verification in case of dual wielding attacks !		
+				if (TO_USER(pSkillCaster)->isWeaponsDisabled())
+					return false;
+
 				_ITEM_TABLE *pLeftHand = TO_USER(pSkillCaster)->GetItemPrototype(LEFTHAND),
 							*pRightHand = TO_USER(pSkillCaster)->GetItemPrototype(RIGHTHAND);
 
@@ -786,6 +778,9 @@ bool MagicInstance::IsAvailable()
 					return false;
 			}
 			else if (pSkill->sSkill == 1056 || pSkill->sSkill == 2056) {	// Weapons verification in case of 2 handed attacks !
+				if (TO_USER(pSkillCaster)->isWeaponsDisabled())
+					return false;
+
 				_ITEM_TABLE	*pRightHand = TO_USER(pSkillCaster)->GetItemPrototype(RIGHTHAND);
 
 				if (TO_USER(pSkillCaster)->GetItem(LEFTHAND)->nNum != 0
@@ -960,6 +955,9 @@ bool MagicInstance::ExecuteType2()
 		_ITEM_TABLE * pTable = nullptr;
 		if (pSkillCaster->isPlayer())
 		{
+			if (TO_USER(pSkillCaster)->isWeaponsDisabled())
+				return false;
+
 			// Not wearing a left-handed bow
 			pTable = TO_USER(pSkillCaster)->GetItemPrototype(LEFTHAND);
 			if (pTable == nullptr || !pTable->isBow())
@@ -1598,7 +1596,7 @@ bool MagicInstance::ExecuteType5()
 
 					pEffect->Reset();
 					// TO-DO: Wrap this up (ugh, I feel so dirty)
-					Packet result(WIZ_MAGIC_PROCESS, uint8(MAGIC_TYPE3_END));
+					Packet result(WIZ_MAGIC_PROCESS, uint8(MAGIC_DURATION_EXPIRED));
 					result << uint8(200); // removes DOT skill
 					pTUser->Send(&result); 
 					bRemoveDOT = true;
@@ -2109,17 +2107,18 @@ short MagicInstance::GetMagicDamage(Unit *pTarget, int total_hit, int attribute)
 
 			// double the staff's damage when using a skill of the same attribute as the staff
 			_ITEM_TABLE *pRightHand = pUser->GetItemPrototype(RIGHTHAND);
-			if (pRightHand != nullptr && pRightHand->isStaff()
+			if (!pUser->isWeaponsDisabled()
+				&& pRightHand != nullptr && pRightHand->isStaff()
 				&& pUser->GetItemPrototype(LEFTHAND) == nullptr)
 			{
 				FastGuard lock(pSkillCaster->m_equippedItemBonusLock);
-				righthand_damage = pRightHand->m_sDamage;
+				righthand_damage = pRightHand->m_sDamage + pUser->m_bAddWeaponDamage;
 				auto itr = pSkillCaster->m_equippedItemBonuses.find(RIGHTHAND);
 				if (itr != pSkillCaster->m_equippedItemBonuses.end())
 				{
 					auto bonusItr = itr->second.find(attribute);
 					if (bonusItr != itr->second.end()) 
-						attribute_damage = pRightHand->m_sDamage; 
+						attribute_damage *= 2; 
 				}
 			}
 			else 
@@ -2214,7 +2213,7 @@ void MagicInstance::Type6Cancel(bool bForceRemoval /*= false*/)
 		return;
 
 	CUser * pUser = TO_USER(pSkillCaster);
-	Packet result(WIZ_MAGIC_PROCESS, uint8(MAGIC_CANCEL_TYPE6));
+	Packet result(WIZ_MAGIC_PROCESS, uint8(MAGIC_CANCEL_TRANSFORMATION));
 
 	// TO-DO: Reset stat changes, recalculate stats.
 	pUser->m_transformationType = TransformationNone;
@@ -2269,7 +2268,7 @@ void MagicInstance::Type9Cancel(bool bRemoveFromMap /*= true*/)
 		bResponse = 93;
 	}
 
-	Packet result(WIZ_MAGIC_PROCESS, uint8(MAGIC_TYPE4_END));
+	Packet result(WIZ_MAGIC_PROCESS, uint8(MAGIC_DURATION_EXPIRED));
 	result << bResponse;
 	pCaster->Send(&result);
 }
@@ -2318,7 +2317,7 @@ void MagicInstance::Type3Cancel()
 
 	if (pSkillCaster->isPlayer())
 	{
-		Packet result(WIZ_MAGIC_PROCESS, uint8(MAGIC_TYPE3_END));
+		Packet result(WIZ_MAGIC_PROCESS, uint8(MAGIC_DURATION_EXPIRED));
 		result << uint8(100); // remove the healing-over-time skill.
 		TO_USER(pSkillCaster)->Send(&result); 
 	}
@@ -2439,4 +2438,7 @@ void MagicInstance::ConsumeItem()
 {
 	if (nConsumeItem != 0 && pSkillCaster->isPlayer())
 		TO_USER(pSkillCaster)->RobItem(nConsumeItem);
+
+	if (bInstantCast)
+		CMagicProcess::RemoveType4Buff(BUFF_TYPE_INSTANT_MAGIC, pSkillCaster);
 }

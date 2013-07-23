@@ -11,7 +11,7 @@ function Main(event)
 	elseif (event == 104) then
 						UseVoucher()
 	elseif (event == 3001) then
-						Decline()
+						Close()
 	elseif (event == 101) then
 						FamiliarHatchTrans()
 	elseif (event == 102) then
@@ -19,9 +19,9 @@ function Main(event)
 	elseif (event == 103) then
 						FamiliarRandom()
 	elseif (event == 105) then
-						ExchangeMagicBag()
+						ExchangeVoucherMagicBag()
 	elseif (event == 106) then
-						ExchangeAutoLoot()
+						ExchangeVoucherAutoLoot()
 	end
 end
 
@@ -33,26 +33,38 @@ function UseVoucher()
 						pUser:SelectMsg(3,-1,820,4344,105,4345,106,4199,3001)
 end
 
-function Decline()
+function Close()
 						return
 end
 
-function FamiliarHatchTrans()
+function FamiliarHatchTrans() -- Some sort of "anvil type" U.I should open where you can either hatch an EGG into a PET or transform it's appearance!
 						return
 end
 
 function FamiliarNameChange()
+	if (pUser:CheckExistItem(800090000)) then
+						return  -- Name Change U.I should open where you can change the name of your PET!
+	else
+						pUser:SelectMsg(2,-1,824,10,3001)
+	end
+end
+
+function FamiliarRandom() -- Opens up a Shop U.I for your little fluffy one where you can buy milk, bread etc!
 						return
 end
 
-function FamiliarRandom()
-						return
+function ExchangeVoucherMagicBag()
+	if (pUser:RobItem(800440000)) then
+						pUser:GiveItem(700011001)
+	else
+						pUser:SelectMsg(2,-1,824,10,3001)
+	end
 end
 
-function ExchangeMagicBag()
-						return
-end
-
-function ExchangeAutoLoot()
-						return
+function ExchangeVoucherAutoLoot()
+	if (pUser:RobItem(800450000)) then
+						pUser:GiveItem(700012000)
+	else
+						pUser:SelectMsg(2,-1,824,10,3001)
+	end
 end

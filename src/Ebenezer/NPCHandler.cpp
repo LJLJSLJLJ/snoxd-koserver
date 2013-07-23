@@ -34,7 +34,10 @@ void CUser::ItemRepair(Packet & pkt)
 		return;
 
 	pTable = g_pMain->GetItemPtr( itemid );
-	if( !pTable ) goto fail_return;
+	if (pTable == nullptr
+		|| pTable->m_iSellPrice == SellTypeNoRepairs) 
+		goto fail_return;
+
 	durability = pTable->m_sDuration;
 	if( durability == 1 ) goto fail_return;
 	if( sPos == 1 )
@@ -88,10 +91,9 @@ void CUser::ClientEvent(uint16 sNpcID)
 	if (itr == g_pMain->m_QuestNpcList.end())
 		return;
 
-	// Copy it. We should really lock the list, but nevermind.
 	QuestHelperList & pList = itr->second;
 	_QUEST_HELPER * pHelper = nullptr;
-	foreach(itr, pList)
+	foreach (itr, pList)
 	{
 		if ((*itr) == nullptr
 			|| (*itr)->sEventDataIndex
@@ -354,11 +356,6 @@ void CUser::NpcEvent(Packet & pkt)
 		Send(&result);
 		break;
 
-	case NPC_CLAN: // this HAS to go.
-		result << uint16(0); // page 0
-		CKnightsManager::AllKnightsList(this, result);
-		break;
-
 	case NPC_WAREHOUSE:
 		result.SetOpcode(WIZ_WAREHOUSE);
 		result << uint8(WAREHOUSE_REQ);
@@ -369,6 +366,10 @@ void CUser::NpcEvent(Packet & pkt)
 	case NPC_CHAOTIC_GENERATOR2:
 		SendAnvilRequest(sNpcID, ITEM_BIFROST_REQ);
 		break;
+
+	case NPC_CLAN: // this HAS to go.
+		result << uint16(0); // page 0
+		CKnightsManager::AllKnightsList(this, result);
 
 	default:
 		ClientEvent(sNpcID);
@@ -521,7 +522,7 @@ void CUser::ItemTrade(Packet & pkt)
 		}
 
 		short oldDurability = pItem->sDuration;
-		if (!pTable->m_iSellPrice) // NOTE: 0 sells normally, 1 sells at full price, not sure what 2's used for...
+		if (pTable->m_iSellPrice != SellTypeFullPrice)
 			transactionPrice = ((pTable->m_iBuyPrice / 6) * count); // /6 is normal, /4 for prem/discount
 		else
 			transactionPrice = (pTable->m_iBuyPrice * count);
