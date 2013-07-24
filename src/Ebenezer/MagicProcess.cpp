@@ -497,6 +497,9 @@ bool CMagicProcess::GrantType4Buff(_MAGIC_TABLE * pSkill, _MAGIC_TYPE4 *pType, U
 		pTarget->m_byDaggerRAmount = pTarget->m_byBowRAmount = 100 - (uint8) pType->sSpecialAmount;
 		break;
 
+	case 47:
+		break;
+
 	case BUFF_TYPE_LOYALTY_AMOUNT:		// Santa's Present (gives an extra +2NP per kill, unlike BUFF_TYPE_LOYALTY which uses an percent).
 		if (pTarget->isPlayer())
 			TO_USER(pTarget)->m_bSkillNPBonus += 2;

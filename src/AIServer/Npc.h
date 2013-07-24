@@ -40,15 +40,6 @@ struct  _NpcGiveItem
 	short	count;			// item 갯수(돈은 단위)
 };
 
-struct	_ExpUserList
-{
-	char	strUserID[MAX_ID_SIZE+1];		// 아이디(캐릭터 이름)
-	int		iUid;							// User uid
-	int		nDamage;						// 타격치 합
-	bool	bIs;							// user in view range
-	//bool	bSameParty;						
-};
-
 struct _Target
 {
 	uint16	id;							// 공격대상 User uid
@@ -167,8 +158,10 @@ public:
 	_Target	m_Target;				// 공격할 유저 저장,,
 	short		m_ItemUserLevel;		// 죽을때 매직 이상 아이템를 떨구기위해 참조해야하는 유저의레벨
 
-	int		m_TotalDamage;	// 총 누적된 대미지양
-	_ExpUserList m_DamagedUserList[NPC_HAVE_USER_LIST]; // 나에게 타격치를 준 유저정보를 리스트로 관리한다.(경험치 분배)
+	std::map<uint16, uint32> m_DamagedUserList; // max NPC_HAVE_USER_LIST?
+	FastMutex m_damageListLock;
+
+	int		m_TotalDamage;
 	short   m_sMaxDamageUserid;		// 나에게 최고의 데미지를 준 유저의 아이디 저장..
 
 	_PathList m_PathList;			// Npc의 패스 리스트 
@@ -356,7 +349,7 @@ public:
 	void  FindFriendRegion(int x, int z, MAP* pMap, _TargetHealer* pHealer, MonSearchType type = MonSearchSameFamily);
 	bool IsCloseTarget(CUser *pUser, int nRange);
 	void SendExpToUserList();
-	bool SetDamage(int nDamage, uint16 uid, bool bSendToEbenezer = true, AttributeType attributeType = AttributeNone);
+	void RecvAttackReq(int nDamage, uint16 sAttackerID, AttributeType attributeType = AttributeNone);
 	void ChangeTarget(int nAttackType, CUser *pUser);
 	void ChangeNTarget(CNpc *pNpc);
 	bool ResetPath();
@@ -364,19 +357,16 @@ public:
 	bool IsChangePath();
 	time_t Attack();
 	time_t LongAndMagicAttack();
-	bool TracingAttack();
+	void TracingAttack();
 	int GetTargetPath(int option = 0);
-	int	GetPartyDamage(int iNumber);
 	CloseTargetResult IsCloseTarget(int nRange, AttackType attackType);
 	bool StepMove();
 	bool StepNoPathMove();
 	bool IsMovingEnd();
 	int  IsSurround(CUser* pUser);
 	bool IsDamagedUserList(CUser *pUser);
-	void IsUserInSight();
 	bool IsPathFindCheck(float fDistance);
 	void IsNoPathFind(float fDistance);
-	bool IsInExpRange(CUser* pUser);
 	void GiveNpcHaveItem();
 
 	time_t NpcLive();
@@ -401,7 +391,7 @@ public:
 	short GetDamage(CUser *pTarget, _MAGIC_TABLE *pSkill = nullptr, bool bPreviewOnly = false);
 	short GetDamage(CNpc *pTarget, _MAGIC_TABLE *pSkill = nullptr, bool bPreviewOnly = false);
 
-	void SendAttackSuccess(uint8 byResult, int tuid, short sDamage, int nHP=0, uint8 byFlag = 0, short sAttack_type=1);
+	void SendAttackRequest(int16 tid);
 
 	bool RegisterRegion(float x, float z);
 	void SendInOut(InOutType type);

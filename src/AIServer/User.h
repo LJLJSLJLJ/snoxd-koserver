@@ -47,19 +47,12 @@ public:
 
 	uint8	m_state;						// User의 상태
 
-	short	m_sOldRegionX;					// 이전 영역 X 좌표
-	short	m_sOldRegionZ;					// 이전 영역 Z 좌표
+	uint8    m_byNowParty;
+	uint8	m_byPartyTotalMan;
+	short   m_sPartyTotalLevel;
+	short	m_sPartyNumber;
 
-	uint8	m_bResHp;						// 회복량
-	uint8	m_bResMp;
-	uint8	m_bResSta;
-
-	uint8    m_byNowParty;				// 파티중이면 1, 부대중이면 2, 둘다 아니면 0
-	uint8	m_byPartyTotalMan;			// 파티 맺은 총 구성 인원수 
-	short   m_sPartyTotalLevel;			// 파티 맺은 사람의 총 레벨
-	short	m_sPartyNumber;				// 파티 번호
-
-	short   m_sItemAc;                  // 아이템 방어률
+	uint16	m_sItemAc;
 
 	short  m_sSurroundNpcNumber[8];		// Npc 다굴~
 
@@ -69,18 +62,10 @@ public:
 public:
 	void Initialize();
 	void InitNpcAttack();
-	void Attack(int sid, int tid);	// ATTACK
-	bool SetDamage(int damage, int attackerID);
-	void Dead(int tid, int nDamage);					// user dead
-	void SetExp(int iNpcExp, int iLoyalty, int iLevel);		// user exp
-	void SetPartyExp(int iNpcExp, int iLoyalty, int iPartyLevel, int iMan);		// user exp
+	void OnDeath(Unit * pKiller);
 	int IsSurroundCheck(float fX, float fY, float fZ, int NpcID);
 	void HealMagic();
 	void HealAreaCheck(int rx, int rz);
-
-	void SendAttackSuccess(short tid, uint8 result, short sDamage, int nHP=0, short sAttack_type=1, uint8 type = 1, short sid = -1);
-	void SendHP();												// user의 HP
-	void SendExp(int32 iExp, int32 iLoyalty, int tType = 1);
 
 	bool isHostileTo(Unit * pTarget);
 	bool isInArena();

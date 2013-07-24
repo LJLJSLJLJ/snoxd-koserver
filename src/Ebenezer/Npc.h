@@ -81,6 +81,9 @@ public:
 	short GetDamage(CUser *pTarget, _MAGIC_TABLE *pSkill = nullptr, bool bPreviewOnly = false);
 	short GetDamage(CNpc *pTarget, _MAGIC_TABLE *pSkill = nullptr, bool bPreviewOnly = false);
 
+	float GetRewardModifier(uint8 byLevel);
+	float GetPartyRewardModifier(uint32 nPartyLevel, uint32 nPartyMembers);
+
 	virtual ~CNpc();
 
 	DECLARE_LUA_CLASS(CNpc);

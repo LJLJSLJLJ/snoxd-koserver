@@ -267,6 +267,34 @@ bool CNpc::CastSkill(Unit * pTarget, uint32 nSkillID)
 	return (instance.bSkillSuccessful);
 }
 
+float CNpc::GetRewardModifier(uint8 byLevel)
+{
+	int iLevelDifference = GetLevel() - byLevel;
+
+	if (iLevelDifference <= -14)	
+		return 0.2f;
+	else if (iLevelDifference <= -8 && iLevelDifference >= -13)
+		return 0.5f;
+	else if (iLevelDifference <= -2 && iLevelDifference >= -7)
+		return 0.8f;
+
+	return 1.0f;
+}
+
+float CNpc::GetPartyRewardModifier(uint32 nPartyLevel, uint32 nPartyMembers)
+{
+	int iLevelDifference = GetLevel() - (nPartyLevel / nPartyMembers);
+
+	if (iLevelDifference >= 8)
+		return 2.0f;
+	else if (iLevelDifference >= 5)
+		return 1.5f;
+	else if (iLevelDifference >= 2)
+		return 1.2f;
+
+	return 1.0f;
+}
+
 /**
  * @brief	Executes the death action.
  *

@@ -42,9 +42,6 @@ bool CGameSocket::HandlePacket(Packet & pkt)
 	case AG_USER_MOVE:
 		RecvUserMove(pkt);
 		break;
-	case AG_ATTACK_REQ:
-		RecvAttackReq(pkt);
-		break;
 	case AG_USER_LOG_OUT:
 		RecvUserLogOut(pkt);
 		break;
@@ -314,20 +311,6 @@ bool CGameSocket::SetUid(float x, float z, int id, int speed)
 	return true;
 }
 
-void CGameSocket::RecvAttackReq(Packet & pkt)
-{
-	uint16 sid, tid;
-	uint8 type, result;
-
-	pkt >> type >> result >> sid >> tid;
-	CUser* pUser = g_pMain->GetUserPtr(sid);
-	if (pUser == nullptr
-		|| pUser->isDead())
-		return;
-
-	pUser->Attack(sid, tid);
-}
-
 void CGameSocket::RecvUserLogOut(Packet & pkt)
 {
 	uint16 sessionId;
@@ -355,18 +338,19 @@ void CGameSocket::RecvUserRegene(Packet & pkt)
 
 void CGameSocket::RecvUserSetHP(Packet & pkt)
 {
-	uint16 uid = pkt.read<uint16>();
-	uint32 nHP = pkt.read<uint32>();
+	uint16 sid, sHP, tid;
+	pkt >> sid >> sHP >> tid;
 
-	CUser* pUser = g_pMain->GetUserPtr(uid);
-	if(pUser == nullptr)	return;
+	CUser* pUser = g_pMain->GetUserPtr(sid);
+	Unit * pAttacker = g_pMain->GetUnitPtr(tid);
 
-	if(pUser->m_sHP != nHP)	{
-		pUser->m_sHP = nHP;
-		if(pUser->m_sHP <= 0)	{
-			pUser->Dead(-100, 0);
-		}
-	}
+	if (pUser == nullptr
+		|| pUser->m_sHP == sHP)
+		return;
+
+	pUser->m_sHP = sHP;
+	if (sHP == 0)
+		pUser->OnDeath(pAttacker);
 }
 
 void CGameSocket::RecvNpcHpChange(Packet & pkt)
@@ -382,7 +366,7 @@ void CGameSocket::RecvNpcHpChange(Packet & pkt)
 
 	if (nAmount < 0)
 	{
-		pNpc->SetDamage(-nAmount, sAttackerID, false, (AttributeType) attributeType);
+		pNpc->RecvAttackReq(-nAmount, sAttackerID, (AttributeType) attributeType);
 	}
 	else
 	{		

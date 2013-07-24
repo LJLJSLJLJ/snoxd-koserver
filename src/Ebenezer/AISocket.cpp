@@ -26,7 +26,7 @@ bool CAISocket::HandlePacket(Packet & pkt)
 			break;
 		case MOVE_END_RESULT:
 			break;
-		case AG_ATTACK_RESULT:
+		case AG_ATTACK_REQ:
 			RecvNpcAttack(pkt);
 			break;
 		// The AI server should send magic system requests to us.
@@ -39,9 +39,6 @@ bool CAISocket::HandlePacket(Packet & pkt)
 			break;
 		case AG_NPC_REGION_UPDATE:
 			RecvNpcRegionUpdate(pkt);
-			break;
-		case AG_USER_SET_HP:
-			RecvUserHP(pkt);
 			break;
 		case AG_USER_EXP:
 			RecvUserExp(pkt);
@@ -230,72 +227,42 @@ void CAISocket::RecvNpcMoveResult(Packet & pkt)
 
 void CAISocket::RecvNpcAttack(Packet & pkt)
 {
-	int nHP = 0, temp_damage = 0;
-	uint16 sid, tid;
-	uint8 type, bResult, byAttackType = 0;
-	short damage = 0;
-	Unit * pTarget = nullptr, * pAttacker = nullptr;
+	CNpc * pAttacker;
+	Unit * pTarget;
+	uint16 sAttackerID, sTargetID;
+	int16 sDamage;
+	uint8 bResult = ATTACK_FAIL;
 
-	pkt >> type >> bResult >> sid >> tid >> damage >> nHP >> byAttackType;
+	pkt >> sAttackerID >> sTargetID;
 
-	pTarget = g_pMain->GetUnitPtr(tid);
-	if (pTarget == nullptr)
+	pAttacker = g_pMain->GetNpcPtr(sAttackerID);
+	pTarget = g_pMain->GetUnitPtr(sTargetID);
+
+	if (pAttacker == nullptr
+		|| pAttacker->isPlayer()
+		|| pTarget == nullptr
+		|| pAttacker->isDead()
+		|| pTarget->isDead())
 		return;
 
-	pAttacker = g_pMain->GetUnitPtr(sid);
-
-	// user attack -> npc
-	if (type == 1)
+	// TO-DO: Wrap this up into its own virtual method
+	sDamage = pAttacker->GetDamage(pTarget);
+	if (sDamage > 0)
 	{
-		if (pAttacker != nullptr 
-			&& pAttacker->isPlayer()) 
-		{
-			CUser * pUser = TO_USER(pAttacker);
+		pTarget->HpChange(-(sDamage), pAttacker);
+		if (pTarget->isDead())
+			bResult = ATTACK_TARGET_DEAD;
+		else
+			bResult = ATTACK_SUCCESS;
 
-			if (byAttackType != MAGIC_ATTACK && byAttackType != DURATION_ATTACK) 
-			{
-				pUser->ItemWoreOut(ATTACK, damage);
-				FastGuard lock(pUser->m_equippedItemBonusLock);
-				
-				foreach (itr, pUser->m_equippedItemBonuses)
-				{
-					foreach (bonusItr, itr->second)
-					{
-						temp_damage = damage * bonusItr->second / 100;
-
-						switch (bonusItr->first)
-						{
-						case ITEM_TYPE_HP_DRAIN :	// HP Drain		
-							pUser->HpChange(temp_damage);	
-							break;
-						case ITEM_TYPE_MP_DRAIN :	// MP Drain		
-							pUser->MSpChange(temp_damage);
-							break;
-						}
-					}				
-				}
-			}
-		}
-	}
-	// npc attack -> user
-	else if (type == 2)		
-	{
+		// Every hit takes a little of the defender's armour durability.
 		if (pTarget->isPlayer())
-		{
-			TO_USER(pTarget)->ItemWoreOut(DEFENCE, damage);
-			pTarget->HpChange(-(damage), pAttacker, false);
-		}
+			TO_USER(pTarget)->ItemWoreOut(DEFENCE, sDamage);
 	}
 
-	// If the target hasn't yet died, send a response.
-	// NOTE: NPC deaths are handled separately, for the loot boxes and such.
-	if (bResult != ATTACK_TARGET_DEAD 
-		&& bResult != MAGIC_ATTACK_TARGET_DEAD)
-	{
-		Packet result(WIZ_ATTACK, byAttackType);
-		result << bResult << sid << tid;
-		pTarget->SendToRegion(&result);
-	}
+	Packet result(WIZ_ATTACK, uint8(DIRECT_ATTACK));
+	result << bResult << sAttackerID << sTargetID;
+	pAttacker->SendToRegion(&result);
 }
 
 void CAISocket::RecvNpcInfo(Packet & pkt)
@@ -380,50 +347,16 @@ void CAISocket::RecvNpcRegionUpdate(Packet & pkt)
 	pNpc->RegisterRegion();
 }
 
-void CAISocket::RecvUserHP(Packet & pkt)
-{
-	uint16 sNid;
-	uint32 nHP, nMaxHP;
-
-	pkt >> sNid >> nHP >> nMaxHP;
-
-	// Is this such a good idea?? 
-	// It should be better to let Ebenezer handle the reason for the HP change
-	// that way the packet can be sent to the client etc...
-	if (sNid < NPC_BAND)
-	{
-		CUser * pUser = g_pMain->GetUserPtr(sNid);
-		if (pUser == nullptr)
-			return;
-
-		pUser->m_sHp = nHP;
-	}
-	else
-	{
-		CNpc * pNpc = g_pMain->GetNpcPtr(sNid);
-		if (pNpc == nullptr)
-			return;
-
-		pNpc->m_iHP = nHP;
-		pNpc->m_iMaxHP = nMaxHP;
-	}
-}
-
 void CAISocket::RecvUserExp(Packet & pkt)
 {
 	uint16 tid;
-	int32 iExp, iLoyalty;
-	pkt >> tid >> iExp >> iLoyalty;
+	pkt >> tid;
 
 	CUser* pUser = g_pMain->GetUserPtr(tid);
 	if (pUser == nullptr)
 		return;
 
-	if (iExp > 0)
-		pUser->ExpChange(iExp);
-
-	if (iLoyalty > 0)
-		pUser->SendLoyaltyChange(iLoyalty);
+	pUser->RecvUserExp(pkt);
 }
 
 void CAISocket::RecvSystemMsg(Packet & pkt)
