@@ -2161,22 +2161,9 @@ time_t CNpc::Attack()
 	if (nID < NPC_BAND)	
 	{
 		CUser * pUser = g_pMain->GetUserPtr(nID);
-		if (pUser == nullptr)	
-		{
-			InitTarget();
-			m_NpcState = NPC_STANDING;
-			return nStandingTime;
-		}
-
-		if (pUser->isDead())
-		{
-			InitTarget();
-			m_NpcState = NPC_STANDING;
-			return nStandingTime;
-		}
-
-		if (pUser->m_bInvisibilityType
-			/*|| pUser->m_state == STATE_DISCONNECTED*/)
+		if (pUser == nullptr
+			|| pUser->isDead()
+			|| pUser->m_bInvisibilityType)
 		{
 			InitTarget();
 			m_NpcState = NPC_STANDING;
@@ -2196,8 +2183,8 @@ time_t CNpc::Attack()
 			nRandom = myrand(1, 10000);
 			if (nRandom < nPercent)	
 			{
-				CNpcMagicProcess::MagicPacket(MAGIC_EFFECTING, m_proto->m_iMagic2, GetID(), -1, int16(GetX()), int16(GetY()), int16(GetZ()));
-				//TRACE("++++ AreaMagicAttack --- sid=%d, magicid=%d\n", GetID(), m_proto->m_iMagic2);
+				CNpcMagicProcess::MagicPacket(MAGIC_EFFECTING, m_proto->m_iMagic1, GetID(), -1, int16(pUser->GetX()), int16(pUser->GetY()), int16(pUser->GetZ()));
+				printf("++++ AreaMagicAttack --- sid=%d, magicid=%d\n", GetID(), m_proto->m_iMagic1);
 				return m_sAttackDelay + 1000;
 			}
 		}
@@ -2207,7 +2194,7 @@ time_t CNpc::Attack()
 			if (nRandom < nPercent)	
 			{
 				CNpcMagicProcess::MagicPacket(MAGIC_EFFECTING, m_proto->m_iMagic1, GetID(), pUser->GetID());
-				//TRACE("LongAndMagicAttack --- sid=%d, tid=%d\n", GetID(), pUser->GetID());
+				printf("LongAndMagicAttack --- sid=%d, tid=%d\n", GetID(), pUser->GetID());
 				return m_sAttackDelay;
 			}
 		}
@@ -2218,7 +2205,8 @@ time_t CNpc::Attack()
 	else // Targeting NPC
 	{
 		CNpc * pNpc = g_pMain->GetNpcPtr(nID);
-		if (pNpc == nullptr)	
+		if (pNpc == nullptr
+			|| pNpc->isDead())
 		{
 			InitTarget();
 			m_NpcState = NPC_STANDING;
@@ -2230,13 +2218,6 @@ time_t CNpc::Attack()
 		{
 			m_NpcState = NPC_HEALING;
 			return 0;
-		}
-
-		if (pNpc->isDead())
-		{
-			InitTarget();
-			m_NpcState = NPC_STANDING;
-			return nStandingTime;
 		}
 
 		SendAttackRequest(pNpc->GetID());
