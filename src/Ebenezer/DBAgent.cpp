@@ -356,13 +356,10 @@ bool CDBAgent::LoadUserData(string & strAccountID, string & strCharID, CUser *pU
 	if (!dbCommand->hasData())
 		return false;
 
-	char	strItem[INVENTORY_TOTAL * 8], strSerial[INVENTORY_TOTAL * 8],
+	char	strItem[INVENTORY_TOTAL * 8] = {0}, strSerial[INVENTORY_TOTAL * 8] = {0},
 			strQuest[QUEST_ARRAY_SIZE];
 
-	uint16 sQuestCount;
-
-	memset(strItem, 0x00, sizeof(strItem));
-	memset(strSerial, 0x00, sizeof(strSerial));
+	uint16 sQuestCount = 0;
 
 	int field = 1;
 	dbCommand->FetchByte(field++, pUser->m_bNation);
@@ -411,6 +408,9 @@ bool CDBAgent::LoadUserData(string & strAccountID, string & strCharID, CUser *pU
 
 	// Convert the old quest storage format to the new one.
 	pUser->m_questMap.clear();
+	if (sQuestCount > QUEST_LIMIT)
+		sQuestCount = QUEST_LIMIT;
+
 	for (int i = 0, index = 0; i < sQuestCount; i++, index += 3)
 	{
 		uint16	sQuestID	= *(uint16 *)(strQuest + index);
