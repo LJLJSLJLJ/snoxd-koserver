@@ -173,14 +173,7 @@ void CNpc::InitUserList()
 {
 	m_sMaxDamageUserid = -1;
 	m_TotalDamage = 0;
-
-	for (int i = 0; i < NPC_HAVE_USER_LIST; i++)
-	{
-		m_DamagedUserList[i].bIs = false;
-		m_DamagedUserList[i].iUid = -1;
-		m_DamagedUserList[i].nDamage = 0;
-		memset(&m_DamagedUserList[i].strUserID, 0, sizeof(m_DamagedUserList[i].strUserID));
-	}
+	m_DamagedUserList.clear();
 }
 
 void CNpc::InitTarget()
@@ -416,16 +409,10 @@ time_t CNpc::NpcTracing()
 	else
 		SendMoveResult(m_fPrevX, m_fPrevY, m_fPrevZ, (float)(m_fSecForRealMoveMetor / ((double)m_sSpeed / 1000)));
 
-	if (result == CloseTargetInAttackRange && GetProto()->m_byDirectAttack == 0 && !isHealer())
-	{
-		if (!TracingAttack())
-		{
-			InitTarget();
-			NpcMoveEnd();
-			m_NpcState = NPC_STANDING;
-			return m_sStandTime;
-		}
-	}	
+	if (result == CloseTargetInAttackRange 
+		&& GetProto()->m_byDirectAttack == 0 
+		&& !isHealer())
+		TracingAttack();
 
 	return m_sSpeed;	
 }
@@ -1292,7 +1279,8 @@ int CNpc::PathFind(CPoint start, CPoint end, float fDistance)
 void CNpc::Dead(Unit * pKiller /*= nullptr*/, bool bSendDeathPacket /*= false*/)
 {
 	MAP* pMap = GetMap();
-	if(pMap == nullptr)	return;
+	if (pMap == nullptr)
+		return;
 
 	m_iHP = 0;
 	m_NpcState = NPC_DEAD;
@@ -1315,18 +1303,8 @@ void CNpc::Dead(Unit * pKiller /*= nullptr*/, bool bSendDeathPacket /*= false*/)
 		SendExpToUserList();
 		GiveNpcHaveItem();
 	}
-
-/*
-	if( m_byDungeonFamily < 0 || m_byDungeonFamily >= MAX_DUNGEON_BOSS_MONSTER )	{
-		TRACE("#### Npc-Dead() m_byDungeonFamily Fail : [nid=%d, name=%s], m_byDungeonFamily=%d #####\n", GetID(), GetName().c_str(), m_byDungeonFamily);
-		return;
-	}
-	if( pMap->m_arDungeonBossMonster[m_byDungeonFamily] == 0 )	{
-		m_byRegenType = 2;				// 리젠이 안되도록.. 
-	}	*/
 }
 
-//	NPC 주변의 적을 찾는다.
 bool CNpc::FindEnemy()
 {
 	if (isNonAttackingObject())
@@ -1675,13 +1653,8 @@ bool CNpc::IsDamagedUserList(CUser *pUser)
 	if (pUser == nullptr) 
 		return false;
 
-	for (int i = 0; i < NPC_HAVE_USER_LIST; i++)
-	{
-		if (STRCASECMP(m_DamagedUserList[i].strUserID, pUser->GetName().c_str()) == 0) 
-			return true;
-	}
-
-	return false;
+	FastGuard lock(m_damageListLock);
+	return (m_DamagedUserList.find(pUser->GetID()) != m_DamagedUserList.end());
 }
 
 int CNpc::IsSurround(CUser* pUser)
@@ -2188,22 +2161,9 @@ time_t CNpc::Attack()
 	if (nID < NPC_BAND)	
 	{
 		CUser * pUser = g_pMain->GetUserPtr(nID);
-		if (pUser == nullptr)	
-		{
-			InitTarget();
-			m_NpcState = NPC_STANDING;
-			return nStandingTime;
-		}
-
-		if (pUser->isDead())
-		{
-			InitTarget();
-			m_NpcState = NPC_STANDING;
-			return nStandingTime;
-		}
-
-		if (pUser->m_bInvisibilityType
-			/*|| pUser->m_state == STATE_DISCONNECTED*/)
+		if (pUser == nullptr
+			|| pUser->isDead()
+			|| pUser->m_bInvisibilityType)
 		{
 			InitTarget();
 			m_NpcState = NPC_STANDING;
@@ -2223,8 +2183,8 @@ time_t CNpc::Attack()
 			nRandom = myrand(1, 10000);
 			if (nRandom < nPercent)	
 			{
-				CNpcMagicProcess::MagicPacket(MAGIC_EFFECTING, m_proto->m_iMagic2, GetID(), -1, int16(GetX()), int16(GetY()), int16(GetZ()));
-				//TRACE("++++ AreaMagicAttack --- sid=%d, magicid=%d\n", GetID(), m_proto->m_iMagic2);
+				CNpcMagicProcess::MagicPacket(MAGIC_EFFECTING, m_proto->m_iMagic1, GetID(), -1, int16(pUser->GetX()), int16(pUser->GetY()), int16(pUser->GetZ()));
+				printf("++++ AreaMagicAttack --- sid=%d, magicid=%d\n", GetID(), m_proto->m_iMagic1);
 				return m_sAttackDelay + 1000;
 			}
 		}
@@ -2234,24 +2194,19 @@ time_t CNpc::Attack()
 			if (nRandom < nPercent)	
 			{
 				CNpcMagicProcess::MagicPacket(MAGIC_EFFECTING, m_proto->m_iMagic1, GetID(), pUser->GetID());
-				//TRACE("LongAndMagicAttack --- sid=%d, tid=%d\n", GetID(), pUser->GetID());
+				printf("LongAndMagicAttack --- sid=%d, tid=%d\n", GetID(), pUser->GetID());
 				return m_sAttackDelay;
 			}
 		}
 
-		nDamage = GetDamage(pUser); /* preview the amount of damage that might be dealt for comparison */
-		
-		if (nDamage <= 0)
-			SendAttackSuccess(ATTACK_FAIL, pUser->GetID(), nDamage, pUser->m_sHP);
-		else if (pUser->SetDamage(nDamage, GetID()))
-			SendAttackSuccess(ATTACK_SUCCESS, pUser->GetID(), nDamage, pUser->m_sHP);
-		else 
-			SendAttackSuccess(ATTACK_TARGET_DEAD, pUser->GetID(), nDamage, pUser->m_sHP);
+
+		SendAttackRequest(pUser->GetID());
 	}
 	else // Targeting NPC
 	{
 		CNpc * pNpc = g_pMain->GetNpcPtr(nID);
-		if (pNpc == nullptr)	
+		if (pNpc == nullptr
+			|| pNpc->isDead())
 		{
 			InitTarget();
 			m_NpcState = NPC_STANDING;
@@ -2265,24 +2220,17 @@ time_t CNpc::Attack()
 			return 0;
 		}
 
-		if (pNpc->isDead())
-		{
-			SendAttackSuccess(ATTACK_TARGET_DEAD, pNpc->GetID(), 0, 0);
-			InitTarget();
-			m_NpcState = NPC_STANDING;
-			return nStandingTime;
-		}
-
-		nDamage = GetDamage(pNpc);
-		if (nDamage <= 0)	
-			SendAttackSuccess(ATTACK_FAIL, pNpc->GetID(), nDamage, pNpc->m_iHP);
-		else if (pNpc->SetDamage(nDamage, GetID()))
-			SendAttackSuccess(ATTACK_SUCCESS, pNpc->GetID(), nDamage, pNpc->m_iHP);
-		else
-			SendAttackSuccess(ATTACK_TARGET_DEAD, pNpc->GetID(), nDamage, pNpc->m_iHP);
+		SendAttackRequest(pNpc->GetID());
 	}
 
 	return m_sAttackDelay;
+}
+
+void CNpc::SendAttackRequest(int16 tid)
+{
+	Packet result(AG_ATTACK_REQ);
+	result << GetID() << tid;
+	g_pMain->Send(&result);
 }
 
 time_t CNpc::LongAndMagicAttack()
@@ -2318,33 +2266,14 @@ time_t CNpc::LongAndMagicAttack()
 	if (nID < NPC_BAND)	
 	{
 		pUser = g_pMain->GetUserPtr(nID);
-		if (pUser == nullptr)	
+		if (pUser == nullptr
+			|| pUser->isDead()
+			|| pUser->m_bInvisibilityType
+			// Don't cast skills on GMs.
+			|| pUser->isGM())
 		{
 			InitTarget();
 			m_NpcState = NPC_STANDING;
-			return nStandingTime;
-		}
-
-		if (pUser->isDead())
-		{
-			InitTarget();
-			m_NpcState = NPC_STANDING;
-			return nStandingTime;
-		}
-
-		if (pUser->m_bInvisibilityType
-			/*|| pUser->m_state == STATE_DISCONNECTED*/)
-		{
-			InitTarget();
-			m_NpcState = NPC_STANDING;
-			return nStandingTime;
-		}
-
-		// Don't cast skills on GMs.
-		if (pUser->isGM())
-		{
-			InitTarget();
-			m_NpcState = NPC_MOVING;
 			return nStandingTime;
 		}
 
@@ -2354,16 +2283,9 @@ time_t CNpc::LongAndMagicAttack()
 	else // Target monster/NPC 
 	{
 		CNpc * pNpc = g_pMain->GetNpcPtr(nID);
-		if (pNpc == nullptr)	
+		if (pNpc == nullptr
+			|| pNpc->isDead())
 		{
-			InitTarget();
-			m_NpcState = NPC_STANDING;
-			return nStandingTime;
-		}
-
-		if (pNpc->isDead())
-		{
-			SendAttackSuccess(ATTACK_TARGET_DEAD, pNpc->GetID(), 0, 0);
 			InitTarget();
 			m_NpcState = NPC_STANDING;
 			return nStandingTime;
@@ -2373,64 +2295,26 @@ time_t CNpc::LongAndMagicAttack()
 	return m_sAttackDelay;
 }
 
-bool CNpc::TracingAttack()
+void CNpc::TracingAttack()
 {
-	int nDamage = 0;
 	uint16 nID = m_Target.id;
-
 	if (nID < NPC_BAND)	// Target is a player
 	{
 		CUser * pUser = g_pMain->GetUserPtr(nID);
-		if (pUser == nullptr)
-			return false;
-
-		if (pUser->isDead())		
-		{
-			SendAttackSuccess(ATTACK_TARGET_DEAD_OK, pUser->GetID(), 0, 0);
-			return false;
-		}
-
-		if (pUser->m_bInvisibilityType
-			/*|| pUser->m_state == STATE_DISCONNECTED*/
+		if (pUser == nullptr
+			|| pUser->isDead()
+			|| pUser->m_bInvisibilityType
 			|| pUser->isGM())
-			return false;
-
-		nDamage = GetDamage(pUser);
-		if (nDamage <= 0)
-			SendAttackSuccess(ATTACK_FAIL, pUser->GetID(), nDamage, pUser->m_sHP);
-		else if (pUser->SetDamage(nDamage, GetID()))
-			SendAttackSuccess(ATTACK_SUCCESS, pUser->GetID(), nDamage, pUser->m_sHP);
-		else
-		{
-			SendAttackSuccess(ATTACK_TARGET_DEAD, pUser->GetID(), nDamage, pUser->m_sHP);
-			return false;
-		}
+			return;
 	}
 	else // Target is an NPC/monster
 	{
 		CNpc * pNpc = g_pMain->GetNpcPtr(nID);
-		if (pNpc == nullptr)
-			return false;
-
-		if (pNpc->isDead())
-		{
-			SendAttackSuccess(ATTACK_TARGET_DEAD, pNpc->GetID(), 0, 0);
-			return false;
-		}
-
-		nDamage = GetDamage(pNpc);
-		if (nDamage <= 0)
-			SendAttackSuccess(ATTACK_FAIL, pNpc->GetID(), nDamage, pNpc->m_iHP);
-		else if (pNpc->SetDamage(nDamage, GetID())) 
-			SendAttackSuccess(ATTACK_SUCCESS, pNpc->GetID(), nDamage, pNpc->m_iHP);
-		else
-		{
-			SendAttackSuccess(ATTACK_TARGET_DEAD, pNpc->GetID(), nDamage, pNpc->m_iHP);
-			return false;
-		}
+		if (pNpc == nullptr
+			|| pNpc->isDead())
+			return;
 	}
-
-	return true;
+	SendAttackRequest(nID);
 }
 
 void CNpc::MoveAttack()
@@ -2598,32 +2482,35 @@ void CNpc::ChangeTarget(int nAttackType, CUser *pUser)
 		return;
 	}
 
-	if(preUser != nullptr/* && preUser->m_state == GAME_STATE_INGAME */)
+	if (preUser != nullptr)
 	{
 		preDamage = 0; lastDamage = 0;
 
-		if(iRandom >= 0 && iRandom < 50)	{			// 몬스터 자신을 가장 강하게 타격한 유저
-			preDamage = preUser->GetDamage(this);
-			lastDamage = pUser->GetDamage(this);
-			//TRACE("Npc-changeTarget 111 - iRandom=%d, pre=%d, last=%d\n", iRandom, preDamage, lastDamage);
-			if(preDamage > lastDamage) return;
+		if (iRandom >= 0 && iRandom < 50)	
+		{
+			preDamage = preUser->GetDamage(this, nullptr, true);
+			lastDamage = pUser->GetDamage(this, nullptr, true);
+
+			if (preDamage > lastDamage) 
+				return;
 		}
-		else if(iRandom >= 50 && iRandom < 80)	{		// 가장 가까운 플레이어
+		else if(iRandom >= 50 && iRandom < 80)	
+		{
 			vNpc.Set(GetX(), GetY(), GetZ());
 			vUser.Set(preUser->GetX(), 0, preUser->GetZ());
 			fDistance1 = GetDistance(vNpc, vUser);
 			vUser.Set(pUser->GetX(), 0, pUser->GetZ());
 			fDistance2 = GetDistance(vNpc, vUser);
-			//TRACE("Npc-changeTarget 222 - iRandom=%d, preDis=%.2f, lastDis=%.2f\n", iRandom, fDistance1, fDistance2);
-			if(fDistance2 > fDistance1)	return;
+
+			if (fDistance2 > fDistance1)	
+				return;
 		}
-		if(iRandom >= 80 && iRandom < 95)		{		// 몬스터가 유저에게 가장 많이 타격을 줄 수 있는 유저
+		else if (iRandom >= 80 && iRandom < 95)		
+		{
 			preDamage = GetDamage(preUser, nullptr, true); /* preview the amount of damage that might be dealt for comparison */
 			lastDamage = GetDamage(pUser, nullptr, true); 
 			//TRACE("Npc-changeTarget 333 - iRandom=%d, pre=%d, last=%d\n", iRandom, preDamage, lastDamage);
 			if(preDamage > lastDamage) return;
-		}
-		if(iRandom >= 95 && iRandom < 101)		{		// Heal Magic을 사용한 유저
 		}
 	}
 	else if(preUser == nullptr && nAttackType == 1004)		return;		// Heal magic에 반응하지 않도록..
@@ -2745,91 +2632,32 @@ void CNpc::ChangeNTarget(CNpc *pNpc)
 		FindFriend();
 }
 
-bool CNpc::SetDamage(int nDamage, uint16 uid, bool bSendToEbenezer /*= true*/, AttributeType attributeType /*= AttributeNone*/)
+void CNpc::RecvAttackReq(int nDamage, uint16 sAttackerID, AttributeType attributeType /*= AttributeNone*/)
 {
-	int i=0, len=0;
-	int userDamage = 0;
-	bool bFlag = false;
-	_ExpUserList *tempUser = nullptr;
+	if (isDead()
+		|| nDamage < 0)
+		return;
 
-	if(m_NpcState == NPC_DEAD) return true;
-	if(m_iHP <= 0) return true;
-	if(nDamage < 0) return true;
 
-	Unit * pAttacker = nullptr;
-	CUser* pUser = nullptr;
-	CNpc* pNpc = nullptr;
-	char strDurationID[MAX_ID_SIZE+1];
+	Unit * pAttacker = g_pMain->GetUnitPtr(sAttackerID);
 
-	const char * id = nullptr;
-
-	if (uid < NPC_BAND)	{	// Target 이 User 인 경우
-		pAttacker = pUser = g_pMain->GetUserPtr(uid);	// 해당 사용자인지 인증
-		if(pUser == nullptr) return true;
-		id = pUser->GetName().c_str();
-	}
-	else if (uid >= NPC_BAND && uid < INVALID_BAND)	{	// Target 이 mon 인 경우
-		pAttacker = pNpc = g_pMain->GetNpcPtr(uid);
-		if(pNpc == nullptr) return true;
-		userDamage = nDamage;
-		id = pNpc->GetName().c_str();
-		goto go_result;
-	}
-	else
+	if (pAttacker != nullptr
+		&& pAttacker->isPlayer())
 	{
-		return false;
+		FastGuard lock(m_damageListLock);
+		m_DamagedUserList[pAttacker->GetID()] += nDamage;
 	}
 
-	userDamage = nDamage;		
-													// 잉여 데미지는 소용없다.		
-	if( (m_iHP - nDamage) < 0 ) userDamage = m_iHP;
+	m_TotalDamage += nDamage;
+	HpChange(-nDamage, pAttacker, false);
 
-	for (i = 0; i < NPC_HAVE_USER_LIST; i++)	
+	if (pAttacker == nullptr)
+		return;
+
+	if (!pAttacker->isPlayer())
 	{
-		if (m_DamagedUserList[i].iUid == uid
-				&& STRCASECMP(m_DamagedUserList[i].strUserID, id) == 0) 
-		{ 
-			m_DamagedUserList[i].nDamage += userDamage; 
-			goto go_result;
-		}
-	}
-
-	for(i = 0; i < NPC_HAVE_USER_LIST; i++)				// 인원 제한이 최종 대미지에 영향을 미치나?
-	{
-		if(m_DamagedUserList[i].iUid == -1)
-		{
-			if(m_DamagedUserList[i].nDamage <= 0)
-			{
-				len = strlen(id);
-				if( len > MAX_ID_SIZE || len <= 0 ) {
-					TRACE("###  Npc SerDamage Fail ---> uid = %d, name=%s, len=%d, id=%s  ### \n", GetID(), GetName().c_str(), len, id);
-					continue;
-				}
-				if(bFlag == true)	strncpy(m_DamagedUserList[i].strUserID, strDurationID, sizeof(m_DamagedUserList[i].strUserID));
-				else	{
-					if (STRCASECMP("**duration**", id) == 0) {
-						strcpy(m_DamagedUserList[i].strUserID, pUser->GetName().c_str());
-					}
-					else strcpy(m_DamagedUserList[i].strUserID, id);
-				}
-				m_DamagedUserList[i].iUid = uid;
-				m_DamagedUserList[i].nDamage = userDamage;
-				m_DamagedUserList[i].bIs = false;
-				break;
-			}
-		}
-	}
-
-go_result:
-	m_TotalDamage += userDamage;
-	HpChange(-nDamage, pAttacker, bSendToEbenezer);
-	if (m_iHP <= 0)
-		return false;
-
-	if (uid >= NPC_BAND)
-	{
-		ChangeNTarget(pNpc);
-		return true;
+		ChangeNTarget(TO_NPC(pAttacker));
+		return;
 	}
 
 	if (attributeType == AttributeLightning
@@ -2845,11 +2673,9 @@ go_result:
 		}
 		else	
 		{
-			ChangeTarget(0, pUser);
+			ChangeTarget(0, TO_USER(pAttacker));
 		}
 	}
-
-	return true;
 }
 
 void CNpc::HpChange(int amount, Unit *pAttacker /*= nullptr*/, bool bSendToEbenezer /*= true*/)
@@ -2883,244 +2709,107 @@ void CNpc::HpChange(int amount, Unit *pAttacker /*= nullptr*/, bool bSendToEbene
 
 void CNpc::SendExpToUserList()
 {
-	int i=0;
-	int nExp = 0;
-	int nPartyExp = 0;
-	int nLoyalty = 0;
-	int nPartyLoyalty = 0;
-	double totalDamage = 0;
-	double CompDamage = 0;
-	double TempValue = 0;
-	int nPartyNumber = -1;
-	int nUid = -1;
-	CUser* pUser = nullptr;
-	CUser* pPartyUser = nullptr;
-	CUser* pMaxDamageUser = nullptr;
-	_PARTY_GROUP* pParty = nullptr;
-	char strMaxDamageUser[MAX_ID_SIZE+1];
-	MAP* pMap = GetMap();
-	if (pMap == nullptr) return;
+	if (GetMap() == nullptr) 
+		return;
 
-	IsUserInSight();	// 시야권내에 있는 유저 셋팅..
-				
-	for(i = 0; i < NPC_HAVE_USER_LIST; i++)				// 일단 리스트를 검색한다.
+	std::string strMaxDamageUser;
+	uint32 nMaxDamage = 0;
+
+	FastGuard lock(m_damageListLock);
+	std::map<CUser *, uint32> filteredDamageList;
+	std::map<uint16, CUser *> partyIndex;
+
+	// Filter the damage list first, so we only send one packet per party.
+	// Rewards are shared based upon the total amount of damage dealt.
+
+	// NOTE:	If a player logs out & another takes its place, it is currently possible
+	//			For this new session to be counted as the old when the mob is killed.
+	//			This does, however, requires the player to be in the same zone, in range at the time
+	//			of the mob's death -- so it is rather unlikely. We should fix this later.
+	foreach (itr, m_DamagedUserList)
 	{
-		if(m_DamagedUserList[i].iUid < 0 || m_DamagedUserList[i].nDamage<= 0) continue;
-		if(m_DamagedUserList[i].bIs == true) pUser = g_pMain->GetUserPtr(m_DamagedUserList[i].iUid);
-		if(pUser == nullptr) continue;
-		
-		if(pUser->m_byNowParty == 1)			// 파티 소속
-		{	
-			totalDamage = GetPartyDamage(pUser->m_sPartyNumber);
-			if(totalDamage == 0 || m_TotalDamage == 0)
-				nPartyExp = 0;
-			else	{
-				if( CompDamage < totalDamage )	{	// 
-					CompDamage = totalDamage;
-					m_sMaxDamageUserid = m_DamagedUserList[i].iUid;
-					pMaxDamageUser = g_pMain->GetUserPtr(m_DamagedUserList[i].iUid);
-					if(pMaxDamageUser == nullptr)	{
-						m_byMaxDamagedNation = pUser->GetNation();
-						strncpy( strMaxDamageUser, pUser->GetName().c_str(), sizeof(strMaxDamageUser) );
-					}
-					else	{
-						m_byMaxDamagedNation = pMaxDamageUser->GetNation();
-						strncpy( strMaxDamageUser, pMaxDamageUser->GetName().c_str(), sizeof(strMaxDamageUser) );
-					}
-				}
+		CUser * pUser = g_pMain->GetUserPtr(itr->first);
+		if (pUser == nullptr
+			|| !isInRangeSlow(pUser, NPC_EXP_RANGE))
+			continue;
 
-				TempValue = m_proto->m_iExp * (totalDamage / m_TotalDamage);
-				nPartyExp = (int)TempValue;
-				if(TempValue > nPartyExp)	nPartyExp = nPartyExp + 1;
-			}
-			if(m_proto->m_iLoyalty == 0 || totalDamage == 0 || m_TotalDamage == 0)
-				nPartyLoyalty = 0;
-			else	{
-				TempValue = m_proto->m_iLoyalty * (totalDamage / m_TotalDamage);
-				nPartyLoyalty = (int)TempValue;
-				if(TempValue > nPartyLoyalty)	nPartyLoyalty = nPartyLoyalty + 1;
-			}
-			// 파티원 전체를 돌면서 경험치 분배
-			if(i != 0)
-			{
-				bool bFlag = false;
-				int count = 0;
-				for(int j=0; j<i; j++)
-				{
-					if(m_DamagedUserList[j].iUid < 0 || m_DamagedUserList[j].nDamage<= 0) continue;
-					if(m_DamagedUserList[j].bIs == true) pPartyUser = g_pMain->GetUserPtr(m_DamagedUserList[j].iUid);
-					if(pPartyUser == nullptr) continue;
-					if(pUser->m_sPartyNumber == pPartyUser->m_sPartyNumber)	continue;
-					count++;
-				}
-
-				if(count == i)	bFlag = true;
-
-				// 여기에서 또 작업...
-				if(bFlag == true)	{
-					int uid = 0;
-					pParty = g_pMain->m_arParty.GetData( pUser->m_sPartyNumber );
-					if( pParty ) {	
-						int nTotalMan = 0;
-						int nTotalLevel = 0;
-						for(int j=0; j<8; j++)	{
-							uid = pParty->uid[j];
-							pPartyUser = g_pMain->GetUserPtr(uid);
-							if(pPartyUser)	{
-								nTotalMan++;
-								nTotalLevel += pPartyUser->m_bLevel;
-							}
-						}
-
-						nPartyExp = GetPartyExp( nTotalLevel, nTotalMan, nPartyExp );
-						//TRACE("* PartyUser GetPartyExp total_level=%d, total_man = %d, exp=%d *\n", nTotalLevel, nTotalMan, nPartyExp);
-
-						for(int k=0; k<8; k++)	{
-							uid = pParty->uid[k];
-							pPartyUser = g_pMain->GetUserPtr(uid);
-							if(pPartyUser)
-							{
-								// monster와 거리를 판단
-								if( IsInExpRange(pPartyUser) == true)
-								{
-									TempValue = ( nPartyExp * ( 1+0.3*( nTotalMan-1 ) ) ) * (double)pPartyUser->m_bLevel / (double)nTotalLevel;
-									//TempValue = ( nPartyExp * ( 1+0.3*( nTotalMan-1 ) ) );
-									nExp = (int)TempValue;
-									if(TempValue > nExp)	nExp = nExp + 1;
-									if(nPartyLoyalty <= 0)
-										nLoyalty = 0;
-									else	{
-										TempValue = ( nPartyLoyalty * ( 1+0.2*( nTotalMan-1 ) ) ) * (double)pPartyUser->m_bLevel / (double)nTotalLevel;
-										nLoyalty = (int)TempValue;
-										if(TempValue > nLoyalty)	nLoyalty = nLoyalty + 1;
-									}
-									pPartyUser->SetPartyExp(nExp, nLoyalty, nTotalLevel, nTotalMan);
-								}
-							}
-						}	
-					}
-				}
-			}
-			else if(i==0)
-			{
-				int uid = 0;
-				pParty = g_pMain->m_arParty.GetData( pUser->m_sPartyNumber );
-				if( pParty ) {	
-					int nTotalMan = 0;
-					int nTotalLevel = 0;
-					for(int j=0; j<8; j++)	{
-						uid = pParty->uid[j];
-						pPartyUser = g_pMain->GetUserPtr(uid);
-						if(pPartyUser)	{
-							nTotalMan++;
-							nTotalLevel += pPartyUser->m_bLevel;
-						}
-					}
-
-					nPartyExp = GetPartyExp( nTotalLevel, nTotalMan, nPartyExp );
-					//TRACE("* PartyUser GetPartyExp total_level=%d, total_man = %d, exp=%d *\n", nTotalLevel, nTotalMan, nPartyExp);
-
-					for(int k=0; k<8; k++)	{
-						uid = pParty->uid[k];
-						pPartyUser = g_pMain->GetUserPtr(uid);
-						if(pPartyUser)
-						{
-							// monster와 거리를 판단
-							if( IsInExpRange(pPartyUser) == true)
-							{
-								TempValue = ( nPartyExp * ( 1+0.3*( nTotalMan-1 ) ) ) * (double)pPartyUser->m_bLevel / (double)nTotalLevel;
-								//TempValue = ( nPartyExp * ( 1+0.3*( nTotalMan-1 ) ) );
-								nExp = (int)TempValue;
-								if(TempValue > nExp)	nExp = nExp + 1;
-								if(nPartyLoyalty <= 0)
-									nLoyalty = 0;
-								else	{
-									TempValue = ( nPartyLoyalty * ( 1+0.2*( nTotalMan-1 ) ) ) * (double)pPartyUser->m_bLevel / (double)nTotalLevel;
-									nLoyalty = (int)TempValue;
-									if(TempValue > nLoyalty)	nLoyalty = nLoyalty + 1;
-								}
-								pPartyUser->SetPartyExp(nExp, nLoyalty, nTotalLevel, nTotalMan);
-							}
-						}
-					}	
-				}
-			}
-			//nExp = 
-		}
-		else									// 개인
+		// Not in a party, we can add them to the list as a solo attacker.
+		if (!pUser->isInParty())
 		{
-			totalDamage = m_DamagedUserList[i].nDamage;
-			
-			if(totalDamage == 0 || m_TotalDamage == 0)	{
-				nExp = 0;
-				nLoyalty = 0;
-			}
-			else	{
+			filteredDamageList[pUser] = itr->second;
+			continue;
+		}
 
-				if( CompDamage < totalDamage )	{	// 
-					CompDamage = totalDamage;
-					m_sMaxDamageUserid = m_DamagedUserList[i].iUid;
-					pMaxDamageUser = g_pMain->GetUserPtr(m_DamagedUserList[i].iUid);
-					if(pMaxDamageUser == nullptr)	{
-						m_byMaxDamagedNation = pUser->GetNation();
-						strncpy( strMaxDamageUser, pUser->GetName().c_str(), sizeof(strMaxDamageUser) );
-					}
-					else	{
-						m_byMaxDamagedNation = pMaxDamageUser->GetNation();
-						strncpy( strMaxDamageUser, pMaxDamageUser->GetName().c_str(), sizeof(strMaxDamageUser) );
-					}
-				}
+		// In a party, so check if another party member is already in the list first.
+		auto partyItr = partyIndex.find(pUser->GetPartyID());
 
-				TempValue = m_proto->m_iExp * ( totalDamage / m_TotalDamage );
-				nExp = (int)TempValue;
-				if(TempValue > nExp)	nExp = nExp + 1;
-
-				if(m_proto->m_iLoyalty == 0) nLoyalty = 0;
-				else	{
-					TempValue = m_proto->m_iLoyalty * ( totalDamage / m_TotalDamage );
-					nLoyalty = (int)TempValue;
-					if(TempValue > nLoyalty)	nLoyalty = nLoyalty + 1;
-				}
-
-				//TRACE("* User Exp id=%s, damage=%d, total=%d, exp=%d, loral=%d *\n", pUser->GetName().c_str(), (int)totalDamage, m_TotalDamage, nExp, nLoyalty);
-				pUser->SetExp(nExp, nLoyalty, GetLevel());
-			}
+		// No other party member, so add us to the filtered damage list & the party index
+		// for future reference.
+		if (partyItr == partyIndex.end())
+		{
+			filteredDamageList[pUser] = itr->second;
+			partyIndex.insert(std::make_pair(pUser->GetPartyID(), pUser));
+		}
+		// There is another pf pir party members in the damage list already, so just add 
+		// to their damage total.
+		else
+		{
+			filteredDamageList[partyItr->second] += itr->second;
 		}
 	}
 
-	if (g_pMain->m_byBattleEvent == BATTLEZONE_OPEN)
+	// Now we can go through the filtered list and tell the game server to distribute rewards
+	// for the kill.
+	foreach (itr, filteredDamageList)
 	{
-		if (m_bySpecialType >= NpcSpecialTypeKarusWarder1 && m_bySpecialType <= NpcSpecialTypeElmoradKeeper)
+		CUser * pUser = itr->first;
+
+		Packet result(AG_USER_EXP);
+		result	<< pUser->GetID()
+				<< GetID()
+				// target's damage vs total damage dealt to the NPC
+				<< itr->second << m_TotalDamage 
+				<< m_proto->m_iExp << m_proto->m_iLoyalty;
+		g_pMain->Send(&result);
+
+		if (itr->second > nMaxDamage)
 		{
-			if (strlen(strMaxDamageUser) != 0)
-			{
-				Packet result(AG_BATTLE_EVENT, uint8(BATTLE_EVENT_MAX_USER));
+			m_sMaxDamageUserid = pUser->GetID();
+			strMaxDamageUser = pUser->GetName();
+			nMaxDamage = itr->second;
+		}
+	}
 
-				switch (m_bySpecialType)
-				{
-				case NpcSpecialTypeKarusWarder1:	result << uint8(3); g_pMain->m_sKillKarusNpc++; break;
-				case NpcSpecialTypeKarusWarder2:	result << uint8(4); g_pMain->m_sKillKarusNpc++; break;
-				case NpcSpecialTypeElmoradWarder1:	result << uint8(5);	g_pMain->m_sKillElmoNpc++; break;
-				case NpcSpecialTypeElmoradWarder2:	result << uint8(6); g_pMain->m_sKillElmoNpc++; break;
-				case NpcSpecialTypeKarusKeeper:		result << uint8(7); g_pMain->m_sKillKarusNpc++; break;
-				case NpcSpecialTypeElmoradKeeper:	result << uint8(8); g_pMain->m_sKillElmoNpc++; break;
-				}
+	if (g_pMain->m_byBattleEvent == BATTLEZONE_OPEN
+		&& !strMaxDamageUser.empty()
+		&& m_bySpecialType >= NpcSpecialTypeKarusWarder1 && m_bySpecialType <= NpcSpecialTypeElmoradKeeper)
+	{
+		Packet result(AG_BATTLE_EVENT, uint8(BATTLE_EVENT_MAX_USER));
 
-				result.SByte();
-				result << strMaxDamageUser;
-				g_pMain->Send(&result);
+		switch (m_bySpecialType)
+		{
+		case NpcSpecialTypeKarusWarder1:	result << uint8(3); g_pMain->m_sKillKarusNpc++; break;
+		case NpcSpecialTypeKarusWarder2:	result << uint8(4); g_pMain->m_sKillKarusNpc++; break;
+		case NpcSpecialTypeElmoradWarder1:	result << uint8(5);	g_pMain->m_sKillElmoNpc++; break;
+		case NpcSpecialTypeElmoradWarder2:	result << uint8(6); g_pMain->m_sKillElmoNpc++; break;
+		case NpcSpecialTypeKarusKeeper:		result << uint8(7); g_pMain->m_sKillKarusNpc++; break;
+		case NpcSpecialTypeElmoradKeeper:	result << uint8(8); g_pMain->m_sKillElmoNpc++; break;
+		}
 
-				bool	bKarusComplete = (g_pMain->m_sKillKarusNpc == pMap->m_sKarusRoom),
-						bElMoradComplete = (g_pMain->m_sKillElmoNpc == pMap->m_sElmoradRoom);
-				if (bKarusComplete || bElMoradComplete)
-				{
-					result.clear();
-					result	<< uint8(BATTLE_EVENT_RESULT) 
-							<< uint8(bKarusComplete ? KARUS : ELMORAD)
-							<< strMaxDamageUser;
-					g_pMain->Send(&result);
-				}
-			}
+		result.SByte();
+		result << strMaxDamageUser;
+		g_pMain->Send(&result);
+
+		bool	bKarusComplete = (g_pMain->m_sKillKarusNpc == GetMap()->m_sKarusRoom),
+				bElMoradComplete = (g_pMain->m_sKillElmoNpc == GetMap()->m_sElmoradRoom);
+
+		if (bKarusComplete || bElMoradComplete)
+		{
+			result.clear();
+			result	<< uint8(BATTLE_EVENT_RESULT) 
+					<< uint8(bKarusComplete ? KARUS : ELMORAD)
+					<< strMaxDamageUser;
+			g_pMain->Send(&result);
 		}
 	}
 }
@@ -3465,55 +3154,12 @@ bool CNpc::GetUserInViewRange(int x, int z)
 	return false;
 }
 
-void CNpc::SendAttackSuccess(uint8 byResult, int tuid, short sDamage, int nHP, uint8 byFlag, short sAttack_type)
-{
-	uint16 sid, tid;
-	uint8 type;
-
-	if (byFlag == 0)
-	{
-		type = 2;
-		sid = GetID();
-		tid = tuid;
-	}
-	else	
-	{
-		type = 1;
-		sid = tuid;
-		tid = GetID();
-	}
-
-	Packet result(AG_ATTACK_RESULT, type);
-	result << byResult << sid << tid << sDamage << nHP << uint8(sAttack_type);
-	g_pMain->Send(&result);
-}
-
 void CNpc::CalcAdaptivePosition(__Vector3 & vPosOrig, __Vector3 & vPosDest, float fAttackDistance, __Vector3 * vResult)
 {
 	*vResult = vPosOrig - vPosDest;	
 	vResult->Normalize();	
 	*vResult *= fAttackDistance;
 	*vResult += vPosDest;
-}
-
-void CNpc::IsUserInSight()
-{
-	for (int j = 0; j < NPC_HAVE_USER_LIST; j++)
-		m_DamagedUserList[j].bIs = false;
-
-	for (int i = 0; i < NPC_HAVE_USER_LIST; i++)
-	{
-		CUser * pUser = g_pMain->GetUserPtr(m_DamagedUserList[i].iUid);
-		if (pUser == nullptr
-			|| !isInRangeSlow(pUser, NPC_EXP_RANGE))
-			continue;
-
-		if (m_DamagedUserList[i].iUid == pUser->GetID())
-		{
-			if (STRCASECMP(m_DamagedUserList[i].strUserID, pUser->GetName().c_str()) == 0) 
-				m_DamagedUserList[i].bIs = true;
-		}
-	}
 }
 
 bool CNpc::IsPathFindCheck(float fDistance)
@@ -3634,22 +3280,22 @@ void CNpc::IsNoPathFind(float fDistance)
 
 void CNpc::GiveNpcHaveItem()
 {
-	int temp = 0, iPer = 0, iMakeItemCode = 0, iMoney = 0, iRandom, nCount = 1, i =0;
+	if (m_sMaxDamageUserid < 0 || m_sMaxDamageUserid > MAX_USER)
+		return;
+
+	int iPer = 0, iMakeItemCode = 0, iMoney = 0, iRandom, nCount = 0;
 
 	iRandom = myrand(70, 100);
 	iMoney = m_iMoney * iRandom / 100;
 
-	_NpcGiveItem m_GiveItemList[NPC_HAVE_ITEM_LIST];			// Npc의 ItemList
-	if( iMoney <= 0 )	{
-		nCount = 0;
-	}
-	else	{
-		m_GiveItemList[0].sSid = TYPE_MONEY_SID;
-		if( iMoney >= SHRT_MAX ) {
+	_NpcGiveItem m_GiveItemList[NPC_HAVE_ITEM_LIST];
+	if (iMoney > 0)
+	{
+		if (iMoney >= SHRT_MAX)
 			iMoney = 32000;	
-			m_GiveItemList[0].count = iMoney;
-		}
-		else	m_GiveItemList[0].count = iMoney;
+
+		m_GiveItemList[nCount].sSid = TYPE_MONEY_SID;
+		m_GiveItemList[nCount++].count = iMoney;
 	}
 	
 	_K_MONSTER_ITEM * pItem = g_pMain->m_NpcItemArray.GetData(m_iItem);
@@ -3701,17 +3347,13 @@ void CNpc::GiveNpcHaveItem()
 		}
 	}
 
-	if( m_sMaxDamageUserid < 0 || m_sMaxDamageUserid > MAX_USER )	{
-		return;
-	}
-
 	Packet result(AG_NPC_GIVE_ITEM);
 	result	<< m_sMaxDamageUserid << GetID()
 			<< GetZoneID() << GetRegionX() << GetRegionZ()
 			<< GetX() << GetZ() << GetY()
 			<< uint8(nCount);
 
-	for (i = 0; i < nCount; i++)
+	for (int i = 0; i < nCount; i++)
 		result << m_GiveItemList[i].sSid << m_GiveItemList[i].count;
 
 	g_pMain->Send(&result);
@@ -3746,54 +3388,15 @@ void CNpc::ComputeDestPos(__Vector3 & vCur, float fDegree, float fDistance, __Ve
 	*vResult += vCur;
 }
 
-int	CNpc::GetPartyDamage(int iNumber)
-{
-	int i=0;
-	int nDamage = 0;
-	CUser* pUser = nullptr;
-	for(i = 0; i < NPC_HAVE_USER_LIST; i++)				// 일단 리스트를 검색한다.
-	{
-		if(m_DamagedUserList[i].iUid < 0 || m_DamagedUserList[i].nDamage<= 0) continue;
-		if(m_DamagedUserList[i].bIs == true) pUser = g_pMain->GetUserPtr(m_DamagedUserList[i].iUid);
-		if(pUser == nullptr) continue;
-		
-		if(pUser->m_sPartyNumber != iNumber)	continue;
-
-		nDamage += m_DamagedUserList[i].nDamage;
-	}
-
-	return nDamage;
-}
-
 void CNpc::HpChange()
 {
 	m_fHPChangeTime = getMSTime();
 
-	//if(m_NpcState == NPC_FIGHTING || m_NpcState == NPC_DEAD)	return;
-	if(m_NpcState == NPC_DEAD)	return;
-	if( m_iHP < 1 )	return;	// 죽기직전일때는 회복 안됨...
-	if( m_iHP == m_iMaxHP)  return;	// HP가 만빵이기 때문에.. 
-	
-	//int amount =  (int)(m_sLevel*(1+m_sLevel/60.0) + 1) ;
-	int amount =  (int)(m_iMaxHP / 20) ;
+	if (isDead() 
+		|| GetHealth() == GetMaxHealth())
+		return;
 
-	m_iHP += amount;
-	if( m_iHP < 0 )
-		m_iHP = 0;
-	else if ( m_iHP > m_iMaxHP )
-		m_iHP = m_iMaxHP;
-
-	Packet result(AG_USER_SET_HP);
-	result << GetID() << m_iHP << m_iMaxHP;
-	g_pMain->Send(&result);
-}
-
-bool CNpc::IsInExpRange(CUser* pUser)
-{
-	if (GetZoneID() != pUser->GetZoneID())
-		return false;
-
-	return isInRangeSlow(pUser->GetX(), pUser->GetZ(), NPC_EXP_RANGE);
+	HpChange((int)(m_iMaxHP / 20));
 }
 
 bool CNpc::CheckFindEnemy()

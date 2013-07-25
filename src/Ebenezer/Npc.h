@@ -81,19 +81,22 @@ public:
 	short GetDamage(CUser *pTarget, _MAGIC_TABLE *pSkill = nullptr, bool bPreviewOnly = false);
 	short GetDamage(CNpc *pTarget, _MAGIC_TABLE *pSkill = nullptr, bool bPreviewOnly = false);
 
+	float GetRewardModifier(uint8 byLevel);
+	float GetPartyRewardModifier(uint32 nPartyLevel, uint32 nPartyMembers);
+
 	virtual ~CNpc();
 
 	DECLARE_LUA_CLASS(CNpc);
 
-	DECLARE_LUA_GETTER(GetID);
-	DECLARE_LUA_GETTER(GetProtoID);
-	DECLARE_LUA_GETTER(GetName);
-	DECLARE_LUA_GETTER(GetNation);
-	DECLARE_LUA_GETTER(GetType);
-	DECLARE_LUA_GETTER(GetZoneID);
-	DECLARE_LUA_GETTER(GetX);
-	DECLARE_LUA_GETTER(GetY);
-	DECLARE_LUA_GETTER(GetZ);
+	DECLARE_LUA_GETTER(GetID)
+	DECLARE_LUA_GETTER(GetProtoID)
+	DECLARE_LUA_GETTER(GetName)
+	DECLARE_LUA_GETTER(GetNation)
+	DECLARE_LUA_GETTER(GetType)
+	DECLARE_LUA_GETTER(GetZoneID)
+	DECLARE_LUA_GETTER(GetX)
+	DECLARE_LUA_GETTER(GetY)
+	DECLARE_LUA_GETTER(GetZ)
 
 	DECLARE_LUA_FUNCTION(CastSkill) {
 		LUA_RETURN(LUA_GET_INSTANCE()->CastSkill(

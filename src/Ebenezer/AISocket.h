@@ -25,7 +25,6 @@ public:
 	void RecvNpcAttack(Packet & pkt);
 	void RecvNpcInfo(Packet & pkt);
 	void RecvNpcRegionUpdate(Packet & pkt);
-	void RecvUserHP(Packet & pkt);
 	void RecvUserExp(Packet & pkt);
 	void RecvSystemMsg(Packet & pkt);
 	void RecvNpcGiveItem(Packet & pkt);

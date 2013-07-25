@@ -19,18 +19,11 @@ void CUser::Initialize()
 {
 	Unit::Initialize();
 
-	m_iUserId = -1;					// User의 번호
-	m_bLive = AI_USER_DEAD;			// 죽었니? 살았니?
-	m_sHP = 0;							// HP
-	m_sMP = 0;							// MP
-	m_sMaxHP = 0;							// MaxHP
-	m_sMaxMP = 0;							// MaxMP
-	m_state = 0;				// User의 상태
-	m_sOldRegionX = 0;	
-	m_sOldRegionZ = 0;	
-	m_bResHp = 0;						// 회복량
-	m_bResMp = 0;
-	m_bResSta = 0;
+	m_iUserId = -1;
+	m_bLive = AI_USER_DEAD;
+	m_sHP = m_sMP = 0;
+	m_sMaxHP = m_sMaxMP = 0;
+	m_state = 0;
 	m_sItemAc = 0;
 	m_byNowParty = 0;
 	m_sPartyTotalLevel = 0;
@@ -53,67 +46,7 @@ void CUser::Initialize()
 	InitNpcAttack();
 }
 
-void CUser::Attack(int sid, int tid)
-{
-	CNpc* pNpc = g_pMain->GetNpcPtr(tid);
-	if (pNpc == nullptr
-		|| pNpc->isDead())
-		return;
-
-/*	if (pNpc->isGuard())
-	{
-		pNpc->m_Target.id = GetID();
-		pNpc->m_Target.bSet = true;
-		pNpc->m_Target.x = GetX();
-		pNpc->m_Target.y = GetY();
-		pNpc->Attack();
-	//	return;
-	}	*/
-
-	int nFinalDamage = GetDamage(pNpc);
-	if (nFinalDamage <= 0)
-		SendAttackSuccess(tid, ATTACK_FAIL, nFinalDamage, pNpc->m_iHP);
-	else if (!pNpc->SetDamage(nFinalDamage, GetID()))
-		SendAttackSuccess(tid, ATTACK_TARGET_DEAD, nFinalDamage, pNpc->m_iHP);
-	else
-		SendAttackSuccess(tid, ATTACK_SUCCESS, nFinalDamage, pNpc->m_iHP);
-}
-
-void CUser::SendAttackSuccess(short tid, uint8 bResult, short sDamage, int nHP, short sAttack_type, uint8 type /*= 1*/, short sid /*= -1*/)
-{
-	if (sid < 0)
-		sid = GetID();
-
-	Packet result(AG_ATTACK_RESULT, type);
-	result << bResult << sid << tid << sDamage << nHP << uint8(sAttack_type);
-	g_pMain->Send(&result);
-}
-
-/**
- * @brief	Applies damage to a user.
- *
- * @param	damage		The damage.
- * @param	attackerID  The attacker's ID.
- *
- * @return	false if the damage caused death, true if not.
- * 			NOTE: The somewhat backwards logic is for consistency with CNpc::SetDamage().
- */
-bool CUser::SetDamage(int damage, int attackerID)
-{
-	if (damage <= 0 || isDead())
-		return true;
-
-	m_sHP -= (short)damage;
-
-	if (m_sHP > 0)
-		return true;
-
-	m_sHP = 0;
-	Dead(attackerID, damage);
-	return false;
-}
-
-void CUser::Dead(int tid, int nDamage)
+void CUser::OnDeath(Unit * pAttacker)
 {
 	if (m_bLive == AI_USER_DEAD)
 		return;
@@ -124,89 +57,10 @@ void CUser::Dead(int tid, int nDamage)
 	InitNpcAttack();
 
 	MAP* pMap = GetMap();
-	if (pMap == nullptr 
-		|| m_sRegionX < 0 || m_sRegionZ < 0 
-		|| m_sRegionX > pMap->GetXRegionMax() || m_sRegionZ > pMap->GetZRegionMax())
+	if (pMap == nullptr)
 		return;
 
 	pMap->RegionUserRemove(m_sRegionX, m_sRegionZ, GetID());
-
-	TRACE("*** User Dead = %d, %s ***\n", GetID(), GetName().c_str());
-	if (tid > 0)
-		SendAttackSuccess(GetID(), ATTACK_TARGET_DEAD, nDamage, m_sHP, 1, 2, tid /*sid*/);
-}
-
-void CUser::SendHP()
-{
-	if (isDead())
-		return;
-
-	Packet result(AG_USER_SET_HP);
-	result << GetID() << uint32(m_sHP);
-	g_pMain->Send(&result);   
-}
-
-void CUser::SetExp(int iNpcExp, int iLoyalty, int iLevel)
-{
-	int nExp = 0;
-	int nLoyalty = 0;
-	int nLevel = 0;
-	double TempValue = 0;
-	nLevel = iLevel - m_bLevel;
-
-	if(nLevel <= -14)	{
-		TempValue = iNpcExp * 0.2;
-		nExp = (int)TempValue;
-		if(TempValue > nExp)  nExp=nExp+1;
-		TempValue = iLoyalty * 0.2;
-		nLoyalty = (int)TempValue;
-		if(TempValue > nLoyalty)  nLoyalty=nLoyalty+1;
-	}
-	else if(nLevel <= -8 && nLevel >= -13)
-	{
-		TempValue = iNpcExp * 0.5;
-		nExp = (int)TempValue;
-		if(TempValue > nExp)  nExp=nExp+1;
-		TempValue = iLoyalty * 0.5;
-		nLoyalty = (int)TempValue;
-		if(TempValue > nLoyalty)  nLoyalty=nLoyalty+1;
-	}
-	else if(nLevel <= -2 && nLevel >= -7)
-	{
-		TempValue = iNpcExp * 0.8;
-		nExp = (int)TempValue;
-		if(TempValue > nExp)  nExp=nExp+1;
-		TempValue = iLoyalty * 0.8;
-		nLoyalty = (int)TempValue;
-		if(TempValue > nLoyalty)  nLoyalty=nLoyalty+1;
-	}
-	else if(nLevel >= -1 ) // && nLevel < 2)
-	{
-		nExp = iNpcExp * 1;
-		nLoyalty = iLoyalty * 1;
-	}
-
-	SendExp(nExp, nLoyalty);
-}
-
-void CUser::SetPartyExp(int iNpcExp, int iLoyalty, int iPartyLevel, int iMan)
-{
-	int nExp = 0;
-	int nLoyalty = 0;
-	int nPercent = 0, nLevelPercent = 0, nExpPercent = 0;
-	double TempValue = 0;
-
-	TempValue = (double)iPartyLevel / 100.0;
-	nExpPercent = (int)(iNpcExp * TempValue);
-
-	SendExp(iNpcExp, iLoyalty);
-}
-
-void CUser::SendExp(int32 iExp, int32 iLoyalty, int tType)
-{
-	Packet result(AG_USER_EXP);
-	result << GetID() << iExp << iLoyalty;
-	g_pMain->Send(&result);   	
 }
 
 void CUser::InitNpcAttack()

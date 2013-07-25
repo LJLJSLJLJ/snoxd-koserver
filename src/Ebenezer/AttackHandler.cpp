@@ -3,7 +3,6 @@
 
 void CUser::Attack(Packet & pkt)
 {
-	Packet result;
 	int16 sid = -1, tid = -1, damage, delaytime, distance;	
 	uint8 bType, bResult = 0;	
 	Unit * pTarget = nullptr;
@@ -35,59 +34,39 @@ void CUser::Attack(Packet & pkt)
 		return;			
 
 	pTarget = g_pMain->GetUnitPtr(tid);
-	if (pTarget != nullptr && isInAttackRange(pTarget))
-	{
-		// We're attacking a player...
-		if (pTarget->isPlayer())
-		{
-			if (CanAttack(pTarget)) 
-			{
-				damage = GetDamage(pTarget, nullptr);
-				if (GetZoneID() == ZONE_SNOW_BATTLE && g_pMain->m_byBattleOpen == SNOW_BATTLE)
-					damage = 0;		
-
-				if (damage > 0)
-				{
-					// TO-DO: Move all this redundant code into appropriate event-based methods so that all the other cases don't have to copypasta (and forget stuff).
-					pTarget->HpChange(-damage, this);
-					if (pTarget->isDead())
-						bResult = ATTACK_TARGET_DEAD;
-
-					ItemWoreOut(ATTACK, damage);
-					TO_USER(pTarget)->ItemWoreOut(DEFENCE, damage);
-				}
-			}
-		}
-		// We're attacking an NPC...
-		else
-		{
-			// AI hasn't loaded yet
-			if (g_pMain->m_bPointCheckFlag == false)	
-				return;	
-
-			if (CanAttack(pTarget))
-			{
-				result.SetOpcode(AG_ATTACK_REQ);
-				result	<< bType << bResult
-						<< GetSocketID() << tid;
-				Send_AIServer(&result);	
-				return;
-			}
-		}
-	}
-
-	result.SetOpcode(WIZ_ATTACK);
-	result << bType << bResult << GetSocketID() << tid;
-	SendToRegion(&result);
+	bResult = ATTACK_FAIL;
 
 	if (pTarget != nullptr 
-		&& pTarget->isPlayer()
-		&& bResult == 2) // 2 means a player died. 
+		&& isInAttackRange(pTarget)
+		&& CanAttack(pTarget))
 	{
-		TO_USER(pTarget)->Send(&result);
-		TRACE("*** User Attack Dead, id=%s, result=%d, type=%d, HP=%d\n", 
-			TO_USER(pTarget)->GetName().c_str(), bResult, TO_USER(pTarget)->m_bResHpType, TO_USER(pTarget)->m_sHp);	
+		damage = GetDamage(pTarget);
+
+		// Can't use R attacks in the Snow War.
+		if (GetZoneID() == ZONE_SNOW_BATTLE 
+			&& g_pMain->m_byBattleOpen == SNOW_BATTLE)
+			damage = 0;
+
+		if (damage > 0)
+		{
+			pTarget->HpChange(-damage, this);
+			if (pTarget->isDead())
+				bResult = ATTACK_TARGET_DEAD;
+			else
+				bResult = ATTACK_SUCCESS;
+
+			// Every attack takes a little of your weapon's durability.
+			ItemWoreOut(ATTACK, damage);
+
+			// Every hit takes a little of the defender's armour durability.
+			if (pTarget->isPlayer())
+				TO_USER(pTarget)->ItemWoreOut(DEFENCE, damage);
+		}
 	}
+
+	Packet result(WIZ_ATTACK, bType);
+	result << bResult << GetSocketID() << tid;
+	SendToRegion(&result);
 }
 
 void CUser::Regene(uint8 regene_type, uint32 magicid /*= 0*/)
