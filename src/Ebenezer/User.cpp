@@ -84,6 +84,7 @@ void CUser::Initialize()
 	m_iExp = 0;
 	m_iBank = m_iGold = 0;
 	m_iLoyalty = m_iLoyaltyMonthly = 0;
+	m_iMannerPoint = 0;
 	m_sHp = m_sMp = m_sSp = 0;
 
 	m_iMaxHp = 0;
