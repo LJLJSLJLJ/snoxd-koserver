@@ -84,6 +84,7 @@ void CUser::Initialize()
 	m_iExp = 0;
 	m_iBank = m_iGold = 0;
 	m_iLoyalty = m_iLoyaltyMonthly = 0;
+	m_iMannerPoint = 0;
 	m_sHp = m_sMp = m_sSp = 0;
 
 	m_iMaxHp = 0;
@@ -1195,6 +1196,143 @@ void CUser::ApplySetItemBonuses(_SET_ITEM * pItem)
 		m_byAcClassBonusAmount[pItem->ACBonusClassType - 1] += pItem->ACBonusClassPercent;
 }
 
+void CUser::RecvUserExp(Packet & pkt)
+{
+	CNpc * pNpc;
+	_PARTY_GROUP * pParty;
+	uint16 sNpcID;
+	int32 iDamage, iTotalDamage, iNpcExp, iNpcLoyalty;
+	uint32 nFinalExp, nFinalLoyalty;
+	double TempValue = 0;
+
+	pkt >> sNpcID >> iDamage >> iTotalDamage >> iNpcExp >> iNpcLoyalty;
+
+	pNpc = g_pMain->GetNpcPtr(sNpcID);
+	if (pNpc == nullptr
+		|| !isInRangeSlow(pNpc, RANGE_50M)
+		|| (iNpcExp <= 0 && iNpcLoyalty <= 0))
+		return;
+
+	// Calculate base XP earned for the damage dealt.
+	if (iNpcExp > 0)
+	{
+		TempValue = iNpcExp * ((double)iDamage / (double)iTotalDamage);
+		nFinalExp = (int) TempValue;
+		if (TempValue > nFinalExp)
+			nFinalExp++;
+	}
+
+	// Calculate base NP earned for the damage dealt.
+	if (iNpcLoyalty > 0)
+	{
+		TempValue = iNpcLoyalty * ((double)iDamage / (double)iTotalDamage);
+		nFinalLoyalty = (int) TempValue;
+		if (TempValue > nFinalLoyalty)
+			nFinalLoyalty++;
+	}
+
+	// Handle solo XP/NP gain
+	if (!isInParty()
+		|| (pParty = g_pMain->GetPartyPtr(GetPartyID())) == nullptr)
+	{
+		if (isDead())
+			return;
+
+		// Calculate the amount to adjust the XP/NP based on level difference.
+		float fModifier = pNpc->GetRewardModifier(GetLevel());
+
+		// Give solo XP
+		if (iNpcExp > 0)
+		{
+			TempValue = nFinalExp * fModifier;
+			nFinalExp = (int) TempValue;
+			if (TempValue > nFinalExp)
+				nFinalExp++;
+
+			ExpChange(nFinalExp);
+		}
+
+		// Give solo NP
+		if (iNpcLoyalty > 0)
+		{
+			TempValue = nFinalLoyalty * fModifier;
+			nFinalLoyalty = (int) TempValue;
+			if (TempValue > nFinalLoyalty)
+				nFinalLoyalty++;
+
+			SendLoyaltyChange(nFinalLoyalty);
+		}
+
+		return;
+	}
+
+	// Handle party XP/NP gain
+	std::vector<CUser *> partyUsers;
+	uint32 nTotalLevel = 0;
+	for (int i = 0; i < MAX_PARTY_USERS; i++)
+	{
+		CUser * pUser = g_pMain->GetUserPtr(pParty->uid[i]);
+		if (pUser == nullptr)
+			continue;
+
+		partyUsers.push_back(pUser);
+		nTotalLevel += pUser->GetLevel();
+	}
+
+	const float fPartyModifierXP = 0.3f;
+	const float fPartyModifierNP = 0.2f;
+
+	uint32 nPartyMembers = (uint32) partyUsers.size();
+
+	// Calculate the amount to adjust the XP/NP based on level difference.
+	float fModifier = pNpc->GetPartyRewardModifier(nTotalLevel, nPartyMembers);
+
+	if (iNpcExp > 0)
+	{
+		TempValue = nFinalExp * fModifier;
+		nFinalExp = (int) TempValue;
+		if (TempValue > nFinalExp)
+			nFinalExp++;
+	}
+
+	if (iNpcLoyalty > 0)
+	{
+		TempValue = nFinalLoyalty * fModifier;
+		nFinalLoyalty = (int) TempValue;
+		if (TempValue > nFinalLoyalty)
+			nFinalLoyalty++;
+	}
+
+	// Hand out kill rewards to all users in the party and still in range.
+	foreach (itr, partyUsers)
+	{
+		CUser * pUser = (*itr);
+		if (pUser->isDead()
+			|| !pUser->isInRangeSlow(pNpc, RANGE_50M))
+			continue;
+
+		if (iNpcExp > 0)
+		{
+			TempValue = (nFinalExp * (1 + fPartyModifierXP * (nPartyMembers - 1))) * (double)pUser->GetLevel() / (double)nTotalLevel;
+			int iExp = (int) TempValue;
+			if (TempValue > iExp)
+				iExp++;
+
+			pUser->ExpChange(iExp);
+		}
+
+		if (iNpcLoyalty > 0)
+		{
+			TempValue = (nFinalLoyalty * (1 + fPartyModifierNP * (nPartyMembers - 1))) * (double)pUser->GetLevel() / (double)nTotalLevel;
+			int iLoyalty = (int) TempValue;
+			if (TempValue > iLoyalty)
+				iLoyalty++;
+
+			pUser->SendLoyaltyChange(iLoyalty);
+		}
+	}
+}
+
 /**
  * @brief	Changes the player's experience points by iExp.
  *
@@ -1461,7 +1599,7 @@ void CUser::HpChange(int amount, Unit *pAttacker /*= nullptr*/, bool bSendToAI /
 	if (bSendToAI)
 	{
 		result.Initialize(AG_USER_SET_HP);
-		result << GetSocketID() << uint32(m_sHp);
+		result << GetSocketID() << m_sHp << tid;
 		Send_AIServer(&result);
 	}
 

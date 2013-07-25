@@ -334,7 +334,8 @@ enum AttackResult
 };
 
 #define STAT_MAX 255
-#define QUEST_ARRAY_SIZE 600 // That's a limit of 200 quests (3 bytes per quest)
+#define QUEST_ARRAY_SIZE	600 // That's a limit of 200 quests (3 bytes per quest)
+#define QUEST_LIMIT			(QUEST_ARRAY_SIZE / 3)
 
 enum InvisibilityType
 {
