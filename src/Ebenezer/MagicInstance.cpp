@@ -2070,7 +2070,7 @@ short MagicInstance::GetMagicDamage(Unit *pTarget, int total_hit, int attribute)
 			sMagicAmount = bCha - 86;
 
 		sMagicAmount += pUser->m_sMagicAttackAmount;
-		total_hit *= bCha / 186;
+		total_hit = total_hit * bCha / 186;
 		result = SUCCESS;
 	}
 		
@@ -2184,7 +2184,9 @@ short MagicInstance::GetMagicDamage(Unit *pTarget, int total_hit, int attribute)
 	// Apply boost for skills matching weather type.
 	// This isn't actually used officially, but I think it's neat...
 	GetWeatherDamage(damage, attribute);
-	damage /= 3;
+
+	if (pTarget->isPlayer())
+		damage /= 3;
 
 	// Implement damage cap.
 	if (damage > MAX_DAMAGE)
