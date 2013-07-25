@@ -985,6 +985,21 @@ public:
 	DECLARE_LUA_GETTER(isRogue);
 	DECLARE_LUA_GETTER(isMage);
 	DECLARE_LUA_GETTER(isPriest);
+	DECLARE_LUA_GETTER(isBeginner)
+	DECLARE_LUA_GETTER(isBeginnerWarrior)
+	DECLARE_LUA_GETTER(isBeginnerRogue)
+	DECLARE_LUA_GETTER(isBeginnerMage)
+	DECLARE_LUA_GETTER(isBeginnerPriest)
+	DECLARE_LUA_GETTER(isNovice)
+	DECLARE_LUA_GETTER(isNoviceWarrior)
+	DECLARE_LUA_GETTER(isNoviceRogue)
+	DECLARE_LUA_GETTER(isNoviceMage)
+	DECLARE_LUA_GETTER(isNovicePriest)
+	DECLARE_LUA_GETTER(isMastered)
+	DECLARE_LUA_GETTER(isMasteredWarrior)
+	DECLARE_LUA_GETTER(isMasteredRogue)
+	DECLARE_LUA_GETTER(isMasteredMage)
+	DECLARE_LUA_GETTER(isMasteredPriest)
 	DECLARE_LUA_GETTER(isInClan);
 	DECLARE_LUA_GETTER(isClanLeader);
 	DECLARE_LUA_GETTER(isInParty);
